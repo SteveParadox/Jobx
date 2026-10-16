@@ -18,6 +18,7 @@ import { assertSourceApproved, changeSourceEnabled } from './source-management';
 
 export type SyncOptions = {
   taskId?: string;
+  taskLeaseToken?: string;
   testOnly?: boolean;
   signal?: AbortSignal;
   transport?: Transport;
@@ -151,7 +152,12 @@ export async function syncSource(
           .select()
           .from(s.ingestionTasks)
           .where(eq(s.ingestionTasks.id, options.taskId));
-        if (!task || task.cancelRequested || task.status !== 'running')
+        if (
+          !task ||
+          task.cancelRequested ||
+          task.status !== 'running' ||
+          task.leaseToken !== options.taskLeaseToken
+        )
           throw new SourceError('CANCELLED', 'Task was cancelled before persistence');
       }
       for (const rejected of snapshot.rejected)
@@ -208,7 +214,12 @@ export async function syncSource(
             .select()
             .from(s.ingestionTasks)
             .where(eq(s.ingestionTasks.id, options.taskId));
-          if (!task || task.cancelRequested || task.status !== 'running')
+          if (
+            !task ||
+            task.cancelRequested ||
+            task.status !== 'running' ||
+            task.leaseToken !== options.taskLeaseToken
+          )
             throw new SourceError('CANCELLED', 'Task cancelled during normalization/persistence');
         }
         seen.add(row.externalId);
@@ -526,6 +537,9 @@ export async function syncSource(
         reason,
         disposition: cancelled ? 'cancelled' : 'failed',
       });
+      const ownsTask = options.taskId
+        ? sql`exists (select 1 from ${s.ingestionTasks} where ${s.ingestionTasks.id}=${options.taskId} and ${s.ingestionTasks.leaseToken}=${options.taskLeaseToken ?? null} and ${s.ingestionTasks.status}='running')`
+        : sql`true`;
       await tx
         .update(s.sources)
         .set({
@@ -534,9 +548,9 @@ export async function syncSource(
           ...(cancelled
             ? {}
             : {
-                lastFailureAt: new Date(),
-                health: 'failing',
-                consecutiveFailures: sql`${s.sources.consecutiveFailures}+1`,
+                lastFailureAt: sql`case when ${ownsTask} then ${new Date()} else ${s.sources.lastFailureAt} end`,
+                health: sql`case when ${ownsTask} then 'failing' else ${s.sources.health} end`,
+                consecutiveFailures: sql`${s.sources.consecutiveFailures} + case when ${ownsTask} then 1 else 0 end`,
               }),
         })
         .where(and(eq(s.sources.id, sourceId), eq(s.sources.syncLeaseToken, leaseToken)));

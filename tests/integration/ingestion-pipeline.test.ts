@@ -435,6 +435,142 @@ describe('durable worker recovery and transactional safety', () => {
     expect(await ctx.db.select().from(s.jobs)).toHaveLength(1);
     expect(await ctx.db.select().from(s.mappings)).toHaveLength(1);
   });
+  it.each([false, true])(
+    'finishes abandoned sync runs when recovery is terminal (cancelled=%s)',
+    async (cancelRequested) => {
+      const source = await enabled();
+      const { taskId } = await enqueueSource(root, source.id);
+      const expired = new Date(Date.now() - 1000);
+      await ctx.db
+        .update(s.ingestionTasks)
+        .set({
+          status: 'running',
+          attempts: 5,
+          maxAttempts: 5,
+          cancelRequested,
+          leaseToken: crypto.randomUUID(),
+          leaseUntil: expired,
+        })
+        .where(eq(s.ingestionTasks.id, taskId));
+      await ctx.db
+        .update(s.sources)
+        .set({
+          syncLeaseToken: crypto.randomUUID(),
+          syncLeaseUntil: expired,
+        })
+        .where(eq(s.sources.id, source.id));
+      const [run] = await ctx.db
+        .insert(s.syncRuns)
+        .values({
+          sourceId: source.id,
+          taskId,
+          revision: source.revision,
+          status: 'persisting',
+        })
+        .returning();
+      const commandsBefore = (await ctx.db.select().from(s.outbox)).length;
+      await recoverIngestionTasks();
+      const [stored] = await ctx.db
+        .select()
+        .from(s.ingestionTasks)
+        .where(eq(s.ingestionTasks.id, taskId));
+      expect(stored).toMatchObject({
+        status: cancelRequested ? 'cancelled' : 'failed',
+        leaseToken: null,
+        leaseUntil: null,
+      });
+      expect(stored.finishedAt).not.toBeNull();
+      const [closedRun] = await ctx.db.select().from(s.syncRuns).where(eq(s.syncRuns.id, run.id));
+      expect(closedRun.status).toBe(cancelRequested ? 'cancelled' : 'failed');
+      expect(closedRun.finishedAt).not.toBeNull();
+      const [storedSource] = await ctx.db
+        .select()
+        .from(s.sources)
+        .where(eq(s.sources.id, source.id));
+      expect(storedSource.syncLeaseToken).toBeNull();
+      expect(storedSource.syncLeaseUntil).toBeNull();
+      if (!cancelRequested) expect(storedSource.health).toBe('dead_letter');
+      expect(await ctx.db.select().from(s.outbox)).toHaveLength(commandsBefore);
+      await recoverIngestionTasks();
+      expect(await ctx.db.select().from(s.outbox)).toHaveLength(commandsBefore);
+    },
+  );
+  it.each([
+    { maxAttempts: 1, replaceSourceLease: false },
+    { maxAttempts: 5, replaceSourceLease: false },
+    { maxAttempts: 1, replaceSourceLease: true },
+    { maxAttempts: 5, replaceSourceLease: true },
+  ])(
+    'ignores a superseded worker failure ($maxAttempts attempts, replaceSourceLease=$replaceSourceLease)',
+    async ({ maxAttempts, replaceSourceLease }) => {
+      const source = await enabled();
+      const { taskId } = await enqueueSource(root, source.id);
+      await ctx.db
+        .update(s.ingestionTasks)
+        .set({ maxAttempts })
+        .where(eq(s.ingestionTasks.id, taskId));
+      const successorLease = crypto.randomUUID();
+      const nextSyncAt = new Date(Date.now() + 7200000);
+      transport = async () => {
+        // Simulate a paused process resuming after another worker took ownership.
+        await ctx.db
+          .update(s.ingestionTasks)
+          .set({ leaseToken: successorLease })
+          .where(eq(s.ingestionTasks.id, taskId));
+        await ctx.db
+          .update(s.sources)
+          .set({
+            ...(replaceSourceLease ? { syncLeaseToken: successorLease } : {}),
+            health: 'healthy',
+            nextSyncAt,
+          })
+          .where(eq(s.sources.id, source.id));
+        throw new Error('Delayed failure from the superseded transport');
+      };
+      const outcome = await processIngestionTask(taskId, options());
+      const [stored] = await ctx.db
+        .select()
+        .from(s.ingestionTasks)
+        .where(eq(s.ingestionTasks.id, taskId));
+      expect(stored).toMatchObject({ status: 'running', leaseToken: successorLease });
+      const [storedSource] = await ctx.db
+        .select()
+        .from(s.sources)
+        .where(eq(s.sources.id, source.id));
+      expect(storedSource.health).toBe('healthy');
+      expect(storedSource.consecutiveFailures).toBe(0);
+      if (replaceSourceLease) expect(storedSource.syncLeaseToken).toBe(successorLease);
+      expect(storedSource.nextSyncAt).toEqual(nextSyncAt);
+      expect(outcome).toEqual({ skipped: true });
+    },
+  );
+  it('rejects a superseded task lease before committing its snapshot', async () => {
+    const source = await enabled();
+    const { taskId } = await enqueueSource(root, source.id);
+    const successorLease = crypto.randomUUID();
+    await ctx.db
+      .update(s.ingestionTasks)
+      .set({
+        status: 'running',
+        leaseToken: successorLease,
+        leaseUntil: new Date(Date.now() + 600000),
+      })
+      .where(eq(s.ingestionTasks.id, taskId));
+    await expect(
+      syncSource(source.id, fetch, undefined, {
+        ...options(),
+        taskId,
+        taskLeaseToken: crypto.randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(await ctx.db.select().from(s.jobs)).toHaveLength(0);
+    expect(await ctx.db.select().from(s.mappings)).toHaveLength(0);
+    const [stored] = await ctx.db
+      .select()
+      .from(s.ingestionTasks)
+      .where(eq(s.ingestionTasks.id, taskId));
+    expect(stored).toMatchObject({ status: 'running', leaseToken: successorLease });
+  });
   it('persists rate-limit retries and supports authorized cancellation/retry', async () => {
     const source = await enabled();
     transport = async (url) => ({

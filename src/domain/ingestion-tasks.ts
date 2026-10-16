@@ -171,6 +171,7 @@ export async function processIngestionTask(id: string, options: SyncOptions = {}
       {
         ...options,
         taskId: id,
+        taskLeaseToken: leaseToken,
         testOnly: task.kind === 'test',
         checkCancelled,
         pace: options.pace ?? paceSourceHost,
@@ -201,8 +202,8 @@ export async function processIngestionTask(id: string, options: SyncOptions = {}
     const availableAt = new Date(
       Date.now() + Math.max(sourceError.retryAfterMs ?? 0, ingestionBackoff(task.attempts)),
     );
-    await db.transaction(async (tx) => {
-      await tx
+    const settled = await db.transaction(async (tx) => {
+      const [owned] = await tx
         .update(s.ingestionTasks)
         .set({
           status: cancelled ? 'cancelled' : retry ? 'retrying' : 'failed',
@@ -213,7 +214,11 @@ export async function processIngestionTask(id: string, options: SyncOptions = {}
           leaseUntil: null,
           finishedAt: retry ? null : new Date(),
         })
-        .where(and(eq(s.ingestionTasks.id, id), eq(s.ingestionTasks.leaseToken, leaseToken)));
+        .where(and(eq(s.ingestionTasks.id, id), eq(s.ingestionTasks.leaseToken, leaseToken)))
+        .returning({ id: s.ingestionTasks.id });
+      // A recovered/reclaimed task belongs to its new worker. Its predecessor must
+      // not reschedule the source or move a healthy source into dead-letter state.
+      if (!owned) return false;
       if (retry)
         await tx
           .update(s.sources)
@@ -224,7 +229,9 @@ export async function processIngestionTask(id: string, options: SyncOptions = {}
           .update(s.sources)
           .set({ health: 'dead_letter', nextSyncAt: null })
           .where(eq(s.sources.id, task.sourceId));
+      return true;
     });
+    if (!settled) return { skipped: true };
     return {
       status: cancelled ? 'cancelled' : retry ? 'retrying' : 'failed',
       code: sourceError.code,
@@ -248,30 +255,17 @@ export async function recoverIngestionTasks(now = new Date()) {
       .limit(200)
       .for('update', { skipLocked: true });
     for (const task of tasks) {
-      if (task.cancelRequested || task.attempts >= task.maxAttempts) {
-        await tx
-          .update(s.ingestionTasks)
-          .set({
-            status: task.cancelRequested ? 'cancelled' : 'failed',
-            finishedAt: now,
-            leaseToken: null,
-            leaseUntil: null,
-            lastError: 'Cancelled or retry budget exhausted during recovery',
-          })
-          .where(eq(s.ingestionTasks.id, task.id));
-        if (!task.cancelRequested)
-          await tx
-            .update(s.sources)
-            .set({ health: 'dead_letter', nextSyncAt: null })
-            .where(eq(s.sources.id, task.sourceId));
-        continue;
-      }
+      const terminal = task.cancelRequested || task.attempts >= task.maxAttempts;
+      // Close the abandoned attempt even when no replay is allowed. Otherwise
+      // the dashboard and source lease retain a running attempt indefinitely.
       if (task.status === 'running') {
         await tx
           .update(s.syncRuns)
           .set({
-            status: 'failed',
-            error: 'Worker lease expired; replay scheduled',
+            status: task.cancelRequested ? 'cancelled' : 'failed',
+            error: terminal
+              ? 'Worker lease expired; cancelled or retry budget exhausted'
+              : 'Worker lease expired; replay scheduled',
             finishedAt: now,
           })
           .where(
@@ -284,6 +278,27 @@ export async function recoverIngestionTasks(now = new Date()) {
           .update(s.sources)
           .set({ syncLeaseToken: null, syncLeaseUntil: null })
           .where(and(eq(s.sources.id, task.sourceId), lte(s.sources.syncLeaseUntil, now)));
+      }
+      if (terminal) {
+        await tx
+          .update(s.ingestionTasks)
+          .set({
+            status: task.cancelRequested ? 'cancelled' : 'failed',
+            finishedAt: now,
+            leaseToken: null,
+            leaseUntil: null,
+            lastError: 'Cancelled or retry budget exhausted during recovery',
+            errorCode: task.cancelRequested ? 'CANCELLED' : 'WORKER_LOST',
+          })
+          .where(eq(s.ingestionTasks.id, task.id));
+        if (!task.cancelRequested)
+          await tx
+            .update(s.sources)
+            .set({ health: 'dead_letter', nextSyncAt: null })
+            .where(eq(s.sources.id, task.sourceId));
+        continue;
+      }
+      if (task.status === 'running') {
         await tx
           .update(s.ingestionTasks)
           .set({
