@@ -4,12 +4,14 @@ PostgreSQL 17 is the deployment baseline. Drizzle supplies one set of schema map
 
 `0000` creates the original domain tables. `0001_search_constraints.sql` adds a generated weighted tsvector, GIN/trigram/array indexes, explicit lifecycle/role/salary/checkout constraints and the initial configurable plans. Later generated migrations add the development inbox and attachment policy. The custom SQL migration is deliberate; do not replace it with `drizzle-kit push` against production.
 
+`0005_candidate_preferences.sql` adds candidate delivery/history settings, bounded search history with account/fingerprint uniqueness and retention indexes, and the first email-attempt timestamp. It is additive: existing alerts keep their per-alert consent, email delivery defaults to allowed for subscribed alerts, and search history defaults to off. Run migrations before starting the updated web and worker processes. Roll back application code without dropping these tables/columns; export any new data before considering a later removal migration.
+
 ## Domain groups
 
 - Identity: users, accounts, sessions, verification records and candidate profiles.
 - Organizations: employers, memberships, invitations and verification evidence.
 - Jobs: records, source mappings, source runs, history, reports and ingestion errors.
-- Candidates: saved jobs/searches, alert consent, private documents, applications and visible/internal events.
+- Candidates: saved jobs/searches, optional recent search history, delivery/history preferences, alert consent, private documents, applications and visible/internal events.
 - Messaging: in-app notifications and delivery attempts with stable deduplication keys.
 - Business: plan snapshots, checkout attempts, transactions, fixed-period subscriptions, invoices and placements.
 - Operations: outbox, indexing notifications, audit logs, editorial content, settings, support, metrics and heartbeat.

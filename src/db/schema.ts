@@ -298,6 +298,32 @@ export const savedSearches = pgTable('saved_searches', {
   filters: jsonb('filters').notNull(),
   createdAt: time('created_at'),
 });
+export const candidatePreferences = pgTable('candidate_preferences', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  emailAlertsEnabled: boolean('email_alerts_enabled').notNull().default(true),
+  searchHistoryEnabled: boolean('search_history_enabled').notNull().default(false),
+  historyConsentedAt: timestamp('history_consented_at', { withTimezone: true }),
+  updatedAt: time('updated_at'),
+});
+export const searchHistory = pgTable(
+  'search_history',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    fingerprint: text('fingerprint').notNull(),
+    filters: jsonb('filters').notNull(),
+    lastUsedAt: time('last_used_at'),
+  },
+  (t) => [
+    uniqueIndex('search_history_user_fingerprint_idx').on(t.userId, t.fingerprint),
+    index('search_history_user_date_idx').on(t.userId, t.lastUsedAt),
+    index('search_history_date_idx').on(t.lastUsedAt),
+  ],
+);
 export const alerts = pgTable('job_alerts', {
   id: id(),
   userId: text('user_id')
@@ -368,6 +394,7 @@ export const deliveries = pgTable('notification_deliveries', {
   body: text('body').notNull(),
   status: text('status').notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),
+  firstAttemptAt: timestamp('first_attempt_at', { withTimezone: true }),
   providerId: text('provider_id'),
   lastError: text('last_error'),
   createdAt: time('created_at'),

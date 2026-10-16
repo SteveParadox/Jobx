@@ -4,7 +4,7 @@ This report describes the repository implementation, not a claim that external a
 
 ## Completed implementation
 
-Next.js/React/TypeScript application with server-rendered public discovery, responsive forms, PostgreSQL/Drizzle migrations, Better Auth registration/verification/reset, company/tenant roles, moderated employer jobs, search, saved jobs/searches, alert digests, private quarantined PDFs, native applications, external activity tracking, team invitations, applicant stages/notes, administrative controls, editorial/curated pages, conditional JobPosting, canonical paths, segmented sitemaps, optional Indexing API and fixed-period provider-verified employer billing.
+Next.js/React/TypeScript application with server-rendered public discovery, responsive forms, PostgreSQL/Drizzle migrations, Better Auth registration/verification/reset, company/tenant roles, moderated employer jobs, search, saved jobs/searches, optional bounded search history, editable email/in-app alerts, global email opt-out, read/unread notifications, private quarantined PDFs, native applications, external activity tracking, team invitations, applicant stages/notes, administrative controls, editorial/curated pages, conditional JobPosting, canonical paths, segmented sitemaps, optional Indexing API and fixed-period provider-verified employer billing.
 
 Redis and BullMQ isolate durable work from web requests. PostgreSQL records the outbox, source snapshots, errors, deduplication identities, indexing state and message attempts. Docker, Vercel/worker configuration, CI and setup/security/operations documentation are included.
 
@@ -48,7 +48,7 @@ Suitable for staging deployment and integration validation after the core enviro
 
 - `npm run typecheck`: passed (Next route type generation plus strict TypeScript).
 - `npm run lint`: passed with no errors; the configuration warnings were corrected.
-- `npm test`: **95 passed**, 5 test files, including migration-backed integration and real authentication flows.
+- `npm test`: **119 passed**, 6 test files, including migration-backed integration, candidate preference/recovery regressions and real authentication flows.
 - `npm run build`: optimized Next.js production build passed; public inventory/detail routes are server-rendered.
 - `npm run format:check` and `git diff --check`: checked as part of the final verification sequence.
 - `npm audit --omit=dev --audit-level=high`: **0 vulnerabilities** after replacing the affected transitive esbuild version with a tested override.
@@ -62,3 +62,5 @@ Application code was uploaded to `SteveParadox/Jobx`, `main`, in commit `bdf6967
 [GitHub Actions run 38863304036](https://github.com/SteveParadox/Jobx/actions/runs/38863304036) failed **before a runner started**. The hosted runner was blocked by an account-level restriction. No CI steps or browser tests executed, and there were no job logs. This is an external account blocker, not a failed application test result.
 
 Resolve the GitHub runner/account restriction, then run **Platform verification** manually from Actions (workflow dispatch is enabled) to verify the latest commit. The workflow pins Ubuntu 24.04 to avoid the announced `ubuntu-latest` image migration. Until that run and the external staging checks pass, the production-readiness verdict remains unchanged.
+
+The continuation rechecked `main` against the local baseline, retried the hosted run, and observed the same account-level runner restriction before any steps started. Candidate controls are integrated through the UI, validated route handlers, transactional services, migration `0005_candidate_preferences.sql`, and persistent-worker retention/delivery checks. Duplicate send claims serialize on a delivery lock, and a precommitted first-attempt timestamp bounds crash recovery against the provider's idempotency window. No live source, merchant, email sender or deployed performance result was added or claimed.

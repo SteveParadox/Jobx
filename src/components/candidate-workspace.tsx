@@ -1,11 +1,13 @@
 'use client';
 import type { candidateDashboard } from '@/domain/candidates';
+import { searchHref, searchSummary } from '@/domain/search-state';
 import { jobPath } from '@/domain/seo';
 import { authClient } from '@/lib/auth-client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AlertForm, api } from './actions';
+import { SearchPreferenceEditor } from './search-preference-editor';
 import { Button, Empty, Notice } from './ui';
 type Data = Awaited<ReturnType<typeof candidateDashboard>>;
 type Serialized<T> = T extends Date
@@ -23,6 +25,9 @@ export function CandidateWorkspace() {
   const [error, setError] = useState(false);
   const [initialError, setInitialError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editingAlert, setEditingAlert] = useState<string | null>(null);
+  const [resumingAlert, setResumingAlert] = useState<string | null>(null);
+  const [editingSearch, setEditingSearch] = useState<string | null>(null);
   async function load() {
     try {
       setData(await api('dashboard'));
@@ -34,7 +39,7 @@ export function CandidateWorkspace() {
   useEffect(() => {
     void Promise.resolve().then(load);
   }, []);
-  async function run(fn: () => Promise<unknown>, success = 'Saved.') {
+  async function run(fn: () => Promise<unknown>, success = 'Saved.', onSuccess?: () => void) {
     setBusy(true);
     setMessage('');
     setError(false);
@@ -42,6 +47,7 @@ export function CandidateWorkspace() {
       await fn();
       await load();
       setMessage(success);
+      onSuccess?.();
     } catch (e) {
       setError(true);
       setMessage((e as Error).message);
@@ -119,7 +125,7 @@ export function CandidateWorkspace() {
               { n: data.saved.length, l: 'Saved jobs' },
               { n: data.applications.length, l: 'Tracked applications' },
               { n: data.alerts.filter((a) => a.enabled).length, l: 'Active alerts' },
-              { n: data.notifications.length, l: 'Recent notifications' },
+              { n: data.notifications.filter((n) => !n.readAt).length, l: 'Unread updates' },
             ].map((x) => (
               <div className="stat" key={x.l}>
                 <strong>{x.n}</strong>
@@ -129,14 +135,40 @@ export function CandidateWorkspace() {
           </div>
           <section className="panel">
             <h2>Recent updates</h2>
+            {data.notifications.some((n) => !n.readAt) && (
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() =>
+                  run(() => api('notifications/read-all', 'POST'), 'Updates marked as read.')
+                }
+              >
+                Mark all as read
+              </Button>
+            )}
             {data.notifications.length ? (
               data.notifications.map((n) => (
                 <div className="workspace-row" key={n.id}>
                   <div>
                     <h3>{n.title}</h3>
                     <p>{n.body}</p>
+                    <span className="pill">{n.readAt ? 'Read' : 'Unread'}</span>
                   </div>
-                  {n.href && <Link href={n.href}>View →</Link>}
+                  <div className="row-actions">
+                    {n.href && <Link href={n.href}>View →</Link>}
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        run(
+                          () => api('notifications/' + n.id, 'PATCH', { read: !n.readAt }),
+                          n.readAt ? 'Marked as unread.' : 'Marked as read.',
+                        )
+                      }
+                    >
+                      {n.readAt ? 'Mark unread' : 'Mark read'}
+                    </Button>
+                  </div>
                 </div>
               ))
             ) : (
@@ -251,65 +283,163 @@ export function CandidateWorkspace() {
         <div className="workspace-grid">
           <section className="panel">
             <h2>Stay in the loop.</h2>
+            {!data.preferences.emailAlertsEnabled && (
+              <Notice>
+                Email job alerts are off. Matches still appear in your workspace. Change this in
+                Privacy.
+              </Notice>
+            )}
             {data.alerts.map((a) => (
-              <div className="workspace-row" key={a.id}>
-                <div>
-                  <h3>{a.name}</h3>
-                  <p>
-                    {a.frequency} · {a.channel} · {a.enabled ? 'Enabled' : 'Paused'}
-                  </p>
+              <div key={a.id}>
+                <div className="workspace-row" key={a.id}>
+                  <div>
+                    <h3>{a.name}</h3>
+                    <p>
+                      {a.frequency} · {a.channel} · {a.enabled ? 'Enabled' : 'Paused'}
+                    </p>
+                    <p>{searchSummary(a.filters)}</p>
+                  </div>
+                  <div className="row-actions">
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        setResumingAlert(null);
+                        setEditingAlert(a.id);
+                      }}
+                    >
+                      Edit alert
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        if (a.enabled) {
+                          void run(
+                            () => api('alerts/' + a.id, 'PATCH', { enabled: false }),
+                            'Alert paused.',
+                          );
+                        } else {
+                          setResumingAlert(a.id);
+                          setEditingAlert(a.id);
+                        }
+                      }}
+                    >
+                      {a.enabled ? 'Pause' : 'Resume'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => run(() => api('alerts/' + a.id, 'DELETE'), 'Alert deleted.')}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
-                <div className="row-actions">
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() =>
-                      run(() => api('alerts/' + a.id, 'PATCH', { enabled: !a.enabled }))
+                {editingAlert === a.id && (
+                  <SearchPreferenceEditor
+                    key={'alert-' + a.id}
+                    name={a.name}
+                    filters={a.filters}
+                    alert={{ ...a, enabled: a.enabled || resumingAlert === a.id }}
+                    busy={busy}
+                    save={(values) =>
+                      run(
+                        () => api('alerts/' + a.id, 'PATCH', values),
+                        'Alert settings saved.',
+                        () => setEditingAlert(null),
+                      )
                     }
-                  >
-                    {a.enabled ? 'Pause' : 'Resume'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => run(() => api('alerts/' + a.id, 'DELETE'), 'Alert deleted.')}
-                  >
-                    Delete
-                  </Button>
-                </div>
+                    cancel={() => setEditingAlert(null)}
+                  />
+                )}
               </div>
             ))}
             <h3 style={{ marginTop: 25 }}>Create a matching alert</h3>
-            <SearchAlert />
+            <SearchAlert onCreated={load} />
           </section>
           <section className="panel">
             <h2>Saved searches</h2>
             {data.searches.map((s) => (
-              <div className="workspace-row" key={s.id}>
-                <Link
-                  href={
-                    '/jobs?' +
-                    new URLSearchParams(
-                      Object.entries(s.filters as Record<string, string>).map(([k, v]) => [
-                        k,
-                        String(v),
-                      ]),
-                    )
-                  }
-                >
-                  {s.name} →
-                </Link>
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => run(() => api('saved-searches/' + s.id, 'DELETE'))}
-                >
-                  Delete
-                </Button>
+              <div key={s.id}>
+                <div className="workspace-row" key={s.id}>
+                  <Link href={searchHref(s.filters)}>{s.name} →</Link>
+                  <div className="row-actions">
+                    <Button variant="ghost" disabled={busy} onClick={() => setEditingSearch(s.id)}>
+                      Edit search
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => run(() => api('saved-searches/' + s.id, 'DELETE'))}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+                {editingSearch === s.id && (
+                  <SearchPreferenceEditor
+                    key={'search-' + s.id}
+                    name={s.name}
+                    filters={s.filters}
+                    busy={busy}
+                    save={(values) =>
+                      run(
+                        () => api('saved-searches/' + s.id, 'PATCH', values),
+                        'Search settings saved.',
+                        () => setEditingSearch(null),
+                      )
+                    }
+                    cancel={() => setEditingSearch(null)}
+                  />
+                )}
               </div>
             ))}
             {!data.searches.length && (
               <p>Save a search from the results page to revisit it here.</p>
+            )}
+            <h2 style={{ marginTop: 35 }}>Recent searches</h2>
+            <p>
+              History is optional. Manage it in Privacy. Up to 50 searches are retained for 90 days.
+            </p>
+            {data.history.length ? (
+              <>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    run(() => api('search-history', 'DELETE'), 'Search history cleared.')
+                  }
+                >
+                  Clear search history
+                </Button>
+                {data.history.map((item) => (
+                  <div className="workspace-row" key={item.id}>
+                    <div>
+                      <Link href={searchHref(item.filters)}>{searchSummary(item.filters)} →</Link>
+                      <p>{new Date(item.lastUsedAt).toLocaleDateString()}</p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        run(
+                          () => api('search-history/' + item.id, 'DELETE'),
+                          'Search removed from history.',
+                        )
+                      }
+                    >
+                      Remove search
+                    </Button>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p>
+                {data.preferences.searchHistoryEnabled
+                  ? 'Your next filtered search will appear here.'
+                  : 'Search history is off.'}
+              </p>
             )}
           </section>
         </div>
@@ -389,6 +519,49 @@ export function CandidateWorkspace() {
       {tab === 'Privacy' && (
         <section className="panel">
           <h2>Your information, your control.</h2>
+          <form
+            className="stack"
+            key={JSON.stringify(data.preferences)}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fields = new FormData(e.currentTarget);
+              void run(
+                () =>
+                  api('preferences', 'PUT', {
+                    emailAlertsEnabled: fields.get('emailAlertsEnabled') === 'on',
+                    searchHistoryEnabled: fields.get('searchHistoryEnabled') === 'on',
+                  }),
+                'Preferences saved.',
+              );
+            }}
+          >
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                name="emailAlertsEnabled"
+                defaultChecked={data.preferences.emailAlertsEnabled}
+              />
+              Allow email job alerts I have subscribed to.
+            </label>
+            <small>
+              Turning this off cancels queued job-alert emails. In-app updates and essential account
+              messages remain available. An email already being delivered cannot be recalled.
+            </small>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                name="searchHistoryEnabled"
+                defaultChecked={data.preferences.searchHistoryEnabled}
+              />
+              Remember my recent job searches.
+            </label>
+            <small>
+              Off by default. Turning history off deletes existing history. Saved searches remain
+              available separately.
+            </small>
+            <Button disabled={busy}>Save privacy preferences</Button>
+          </form>
+          <h3 style={{ marginTop: 35 }}>Export your information</h3>
           <p>
             Export your profile, saved jobs, applications, alerts and visible activity. Employer
             internal notes are not included.
@@ -431,7 +604,7 @@ export function CandidateWorkspace() {
     </div>
   );
 }
-function SearchAlert() {
+function SearchAlert({ onCreated }: { onCreated: () => Promise<void> }) {
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
   return (
@@ -448,7 +621,7 @@ function SearchAlert() {
           maxLength={2}
         />
       </label>
-      <AlertForm filters={{ q, ...(country ? { country } : {}) }} />
+      <AlertForm filters={{ q, ...(country ? { country } : {}) }} onCreated={onCreated} />
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { searchSchema } from './validation';
 export async function generateDigests() {
   const db = getDb();
   const alerts = await db
-    .select({ alert: s.alerts, email: s.user.email, disabled: s.user.disabled })
+    .select({ alert: s.alerts, email: s.user.email })
     .from(s.alerts)
     .innerJoin(s.user, eq(s.alerts.userId, s.user.id))
     .where(
@@ -22,24 +22,28 @@ export async function generateDigests() {
         sql`(${s.alerts.lastRunAt} is null or ${s.alerts.lastRunAt}<now()-case when ${s.alerts.frequency}='weekly' then interval '7 days' else interval '1 day' end)`,
       ),
     )
+    .orderBy(sql`${s.alerts.lastRunAt} asc nulls first`, s.alerts.id)
     .limit(1000);
   let count = 0;
   for (const { alert, email } of alerts) {
     const now = new Date();
-    const period = (alert.frequency === 'weekly' ? 7 : 1) * 86400000;
-    if (alert.lastRunAt && now.getTime() - alert.lastRunAt.getTime() < period) continue;
     await db.transaction(async (tx) => {
       const [current] = await tx
         .select()
         .from(s.alerts)
         .where(eq(s.alerts.id, alert.id))
         .for('update');
+      const period = (current?.frequency === 'weekly' ? 7 : 1) * 86400000;
       if (
-        !current.enabled ||
+        !current?.enabled ||
         (current.lastRunAt && now.getTime() - current.lastRunAt.getTime() < period)
       )
         return;
-      const filters = searchSchema.parse(alert.filters);
+      const [preferences] = await tx
+        .select()
+        .from(s.candidatePreferences)
+        .where(eq(s.candidatePreferences.userId, current.userId));
+      const filters = searchSchema.parse(current.filters);
       const matches = await tx
         .select({ job: s.jobs })
         .from(s.jobs)
@@ -47,8 +51,8 @@ export async function generateDigests() {
         .where(
           and(
             searchConditions(filters),
-            sql`${s.jobs.publishedAt}>=${alert.createdAt}`,
-            sql`not exists(select 1 from notifications where dedupe_key='match:'||${alert.id}||':'||${s.jobs.id}::text)`,
+            sql`${s.jobs.publishedAt}>=${current.consentedAt}`,
+            sql`not exists(select 1 from notifications where dedupe_key='match:'||${current.id}||':'||${s.jobs.id}::text)`,
           ),
         )
         .orderBy(desc(s.jobs.publishedAt))
@@ -57,25 +61,29 @@ export async function generateDigests() {
         await tx
           .insert(s.notifications)
           .values({
-            userId: alert.userId,
+            userId: current.userId,
             title: job.title,
-            body: `A new opening matches ${alert.name}`,
+            body: `A new opening matches ${current.name}`,
             href: jobPath(job),
-            dedupeKey: `match:${alert.id}:${job.id}`,
+            dedupeKey: `match:${current.id}:${job.id}`,
           })
           .onConflictDoNothing();
-      if (matches.length && alert.channel === 'email') {
-        const unsubscribe = `${brand.url}/unsubscribe?token=${encodeURIComponent(alertToken(alert.id))}`;
-        const html = `<h1>${escapeHtml(alert.name)}</h1><ul>${matches.map(({ job }) => `<li><a href="${brand.url + jobPath(job)}">${escapeHtml(job.title)}</a> — ${escapeHtml(job.locationLabel)}</li>`).join('')}</ul><p><a href="${unsubscribe}">Unsubscribe</a></p>`;
+      if (
+        matches.length &&
+        current.channel === 'email' &&
+        preferences?.emailAlertsEnabled !== false
+      ) {
+        const unsubscribe = `${brand.url}/unsubscribe?token=${encodeURIComponent(alertToken(current.id))}`;
+        const html = `<h1>${escapeHtml(current.name)}</h1><ul>${matches.map(({ job }) => `<li><a href="${brand.url + jobPath(job)}">${escapeHtml(job.title)}</a> — ${escapeHtml(job.locationLabel)}</li>`).join('')}</ul><p><a href="${unsubscribe}">Unsubscribe</a></p>`;
         await tx
           .insert(s.deliveries)
           .values({
-            alertId: alert.id,
-            userId: alert.userId,
+            alertId: current.id,
+            userId: current.userId,
             to: email,
-            subject: `${matches.length} new opportunities · ${alert.name}`,
+            subject: `${matches.length} new opportunities · ${current.name}`,
             body: html,
-            dedupeKey: `digest:${alert.id}:${now.toISOString().slice(0, 10)}`,
+            dedupeKey: `digest:${current.id}:${now.toISOString().slice(0, 10)}:${current.consentedAt.getTime()}`,
           })
           .onConflictDoNothing();
         count++;
@@ -87,43 +95,78 @@ export async function generateDigests() {
 }
 export async function deliverNotification(id: string) {
   const db = getDb();
-  const [d] = await db.select().from(s.deliveries).where(eq(s.deliveries.id, id));
-  if (!d || d.status === 'sent' || d.status === 'cancelled') return;
-  if (d.alertId) {
-    const [alert] = await db.select().from(s.alerts).where(eq(s.alerts.id, d.alertId));
-    if (!alert?.enabled) {
-      await db.update(s.deliveries).set({ status: 'cancelled' }).where(eq(s.deliveries.id, id));
-      return;
-    }
-  }
-  const [owner] = await db.select().from(s.user).where(eq(s.user.id, d.userId));
-  if (!owner || owner.disabled || !owner.emailVerified) return;
-  // Resend retains idempotency keys for 24h; ambiguous deliveries beyond that window need review.
-  if (d.attempts > 0 && Date.now() - d.createdAt.getTime() > 23 * 3600000) {
-    await db
-      .update(s.deliveries)
-      .set({ status: 'review', lastError: 'Delivery is outside provider idempotency window' })
-      .where(eq(s.deliveries.id, id));
-    return;
-  }
+  // Commit this marker before network I/O: a crash after provider acceptance must not
+  // erase the start of the provider's idempotency window, even if the send transaction rolls back.
   await db
     .update(s.deliveries)
-    .set({ status: 'sending', attempts: sql`${s.deliveries.attempts}+1` })
-    .where(eq(s.deliveries.id, id));
-  try {
-    const providerId = await sendEmail(d.to, d.subject, d.body, d.dedupeKey);
-    await db
+    .set({
+      firstAttemptAt: sql`coalesce(${s.deliveries.firstAttemptAt},case when ${s.deliveries.attempts}>0 then ${s.deliveries.createdAt} else now() end)`,
+    })
+    .where(and(eq(s.deliveries.id, id), sql`${s.deliveries.status} in ('pending','sending')`));
+  const failure = await db.transaction(async (tx) => {
+    // A row lock serializes duplicate worker claims. Network I/O is bounded to 15s.
+    const [d] = await tx.select().from(s.deliveries).where(eq(s.deliveries.id, id)).for('update');
+    if (!d || !['pending', 'sending'].includes(d.status)) return;
+    const [owner] = await tx.select().from(s.user).where(eq(s.user.id, d.userId));
+    const [preferences] = await tx
+      .select()
+      .from(s.candidatePreferences)
+      .where(eq(s.candidatePreferences.userId, d.userId));
+    const [alert] = d.alertId
+      ? await tx.select().from(s.alerts).where(eq(s.alerts.id, d.alertId))
+      : [];
+    if (
+      !owner ||
+      owner.disabled ||
+      !owner.emailVerified ||
+      owner.email !== d.to ||
+      (d.alertId &&
+        (!alert?.enabled ||
+          alert.channel !== 'email' ||
+          preferences?.emailAlertsEnabled === false ||
+          alert.consentedAt > d.createdAt))
+    ) {
+      await tx.update(s.deliveries).set({ status: 'cancelled' }).where(eq(s.deliveries.id, id));
+      return;
+    }
+    // Resend retains keys for 24h. Leave a margin; review rather than risk a duplicate.
+    if (
+      !d.firstAttemptAt ||
+      Date.now() - d.firstAttemptAt.getTime() > 23 * 3600000 ||
+      d.attempts >= 5
+    ) {
+      await tx
+        .update(s.deliveries)
+        .set({
+          status: 'review',
+          lastError:
+            d.attempts >= 5
+              ? 'Delivery retry limit reached'
+              : 'Delivery is outside provider idempotency window',
+        })
+        .where(eq(s.deliveries.id, id));
+      return;
+    }
+    await tx
       .update(s.deliveries)
-      .set({ status: 'sent', sentAt: new Date(), providerId, lastError: null })
+      .set({ status: 'sending', attempts: d.attempts + 1 })
       .where(eq(s.deliveries.id, id));
-  } catch (error) {
-    await db
-      .update(s.deliveries)
-      .set({
-        status: 'pending',
-        lastError: error instanceof Error ? error.message.slice(0, 500) : 'Email delivery failed',
-      })
-      .where(eq(s.deliveries.id, id));
-    throw error;
-  }
+    try {
+      const providerId = await sendEmail(d.to, d.subject, d.body, d.dedupeKey);
+      await tx
+        .update(s.deliveries)
+        .set({ status: 'sent', sentAt: new Date(), providerId, to: owner.email, lastError: null })
+        .where(eq(s.deliveries.id, id));
+    } catch (error) {
+      await tx
+        .update(s.deliveries)
+        .set({
+          status: 'pending',
+          lastError: error instanceof Error ? error.message.slice(0, 500) : 'Email delivery failed',
+        })
+        .where(eq(s.deliveries.id, id));
+      return error instanceof Error ? error : new Error('Email delivery failed');
+    }
+  });
+  if (failure) throw failure;
 }

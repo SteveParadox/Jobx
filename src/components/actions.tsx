@@ -161,26 +161,37 @@ export function NativeApply({
     </section>
   );
 }
-export function AlertForm({ filters = {} }: { filters?: Record<string, unknown> }) {
+export function AlertForm({
+  filters = {},
+  onCreated,
+}: {
+  filters?: Record<string, unknown>;
+  onCreated?: () => Promise<void>;
+}) {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [channel, setChannel] = useState('email');
+  const [failed, setFailed] = useState(false);
   return (
     <form
       className="stack"
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
+        setFailed(false);
         const d = new FormData(e.currentTarget);
         try {
           await api('alerts', 'POST', {
             name: d.get('name'),
             filters,
             frequency: d.get('frequency'),
-            channel: 'email',
+            channel,
             consent: true,
           });
           setMessage('Your alert is active. Manage it in your workspace.');
+          await onCreated?.();
         } catch (e) {
+          setFailed(true);
           setMessage((e as Error).message);
         } finally {
           setBusy(false);
@@ -204,16 +215,24 @@ export function AlertForm({ filters = {} }: { filters?: Record<string, unknown> 
           <option value="weekly">Weekly digest</option>
         </select>
       </label>
+      <label>
+        Delivery channel
+        <select name="channel" value={channel} onChange={(e) => setChannel(e.target.value)}>
+          <option value="email">Email and in-app</option>
+          <option value="in_app">In-app only</option>
+        </select>
+      </label>
       <label className="checkbox">
-        <input type="checkbox" required />I agree to receive matching vacancies by email. I can
-        unsubscribe at any time.
+        <input type="checkbox" required key={channel} />I agree to receive matching vacancies
+        {channel === 'email' ? ' by email and in my workspace' : ' in my workspace'}. I can pause or
+        delete this alert at any time.
       </label>
       <Button disabled={busy}>
         <Bell size={16} />
         Create job alert
       </Button>
       {message && (
-        <Notice>
+        <Notice error={failed}>
           {message} <Link href="/auth">Account access</Link>
         </Notice>
       )}

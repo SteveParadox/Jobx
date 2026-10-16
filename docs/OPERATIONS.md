@@ -18,7 +18,13 @@ A disabled sole source pauses its active records without deleting history. Two s
 
 ## Recover messaging
 
-Check sender configuration and provider errors. Retries reuse a stable provider idempotency key. An ambiguous delivery outside the provider's 24-hour idempotency window is moved to review after 23 hours rather than automatically risking duplicate email. Verify provider history before manually retrying it. Paused/unsubscribed alerts are checked again immediately before send.
+Check sender configuration and provider errors. Retries reuse a stable provider idempotency key and payload. [Resend retains idempotency keys for 24 hours](https://resend.com/docs/dashboard/emails/idempotency-keys). The worker commits `first_attempt_at` before making a provider request; a later database rollback cannot erase that marker. An ambiguous delivery moves to review after 23 hours rather than automatically risking duplicate email. Legacy attempted records without a marker use their creation time conservatively. Review records are never automatically sent. Verify provider history before manually retrying them.
+
+Each send holds a delivery row lock during the bounded provider call, so simultaneous workers cannot both send the same record. Provider idempotency still handles acceptance followed by a worker/database failure. Failures persist attempt/error state and then propagate for BullMQ backoff. The production PostgreSQL/multi-process recovery behavior still requires staging verification; the integration suite exercises these cases in PGlite's serialized engine.
+
+Paused/unsubscribed alerts, in-app-only channels, global email opt-out, disabled/unverified recipients and changed email addresses are checked immediately before send. Changing alert criteria or delivery channel cancels old queued digests. A changed recipient cancels the old delivery instead of changing an ambiguous provider retry's payload. Changing sender/provider configuration during retries requires operator review because the provider also compares the request payload. A send already in progress cannot be recalled.
+
+The minute scheduler also prunes search-history entries older than 90 days using the retention index. Disabled history is erased immediately by the settings transaction. Monitor worker readiness for retention work as well as ingestion and messaging.
 
 ## Payments
 

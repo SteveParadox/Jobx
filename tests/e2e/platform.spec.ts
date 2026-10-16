@@ -88,6 +88,82 @@ test('external apply uses the authorized destination without requiring sign-in',
   await expect(link).toHaveAttribute('href', 'https://example.com/demo-application');
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
 });
+test('candidate controls search history, edits alerts and saved searches, and marks updates read', async ({
+  page,
+}) => {
+  await pool.query("delete from candidate_preferences where user_id='demo-candidate'");
+  await pool.query("delete from search_history where user_id='demo-candidate'");
+  await pool.query("delete from saved_searches where user_id='demo-candidate'");
+  await signIn(page);
+  await page.getByRole('tab', { name: 'Privacy', exact: true }).click();
+  await expect(page.getByLabel('Remember my recent job searches.')).not.toBeChecked();
+  await page.getByLabel('Remember my recent job searches.').check();
+  await page.getByLabel('Allow email job alerts I have subscribed to.').uncheck();
+  await page.getByRole('button', { name: 'Save privacy preferences' }).click();
+  await expect(page.getByText('Preferences saved.', { exact: true })).toBeVisible();
+  const recorded = page.waitForResponse(
+    (r) => r.url().endsWith('/api/platform/search-history') && r.request().method() === 'POST',
+  );
+  await page.goto('/jobs?q=Demo%20Backend');
+  expect(await (await recorded).json()).toEqual({ recorded: true });
+  await page.getByRole('button', { name: 'Save this search' }).click();
+  await expect(page.getByText('Search saved to your workspace.', { exact: true })).toBeVisible();
+  await page.getByLabel('Alert name').fill('Editable in-app fixture');
+  await page.getByLabel('Delivery channel').selectOption('in_app');
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Create job alert' }).click();
+  await expect(page.getByText('Your alert is active. Manage it in your workspace.')).toBeVisible();
+  await page.goto('/dashboard');
+  await page.getByRole('tab', { name: 'Alerts & searches', exact: true }).click();
+  const alertRow = page
+    .locator('.workspace-row')
+    .filter({ has: page.getByRole('heading', { name: 'Editable in-app fixture', exact: true }) });
+  await alertRow.getByRole('button', { name: 'Edit alert', exact: true }).click();
+  const editor = page
+    .locator('form')
+    .filter({ has: page.getByRole('heading', { name: 'Edit alert', exact: true }) });
+  await editor.getByLabel('Frequency').selectOption('weekly');
+  await editor.getByLabel('I agree to receive matching vacancies', { exact: false }).check();
+  await editor.getByRole('button', { name: 'Save alert settings' }).click();
+  await expect(page.getByText('Alert settings saved.', { exact: true })).toBeVisible();
+  await expect(alertRow).toContainText('weekly · in_app · Enabled');
+  const savedRow = page
+    .locator('.workspace-row')
+    .filter({ has: page.getByRole('link', { name: 'Demo Backend →', exact: true }) })
+    .filter({ has: page.getByRole('button', { name: 'Edit search', exact: true }) });
+  await savedRow.getByRole('button', { name: 'Edit search', exact: true }).click();
+  const savedEditor = page
+    .locator('form')
+    .filter({ has: page.getByRole('heading', { name: 'Edit saved search', exact: true }) });
+  await savedEditor.getByLabel('Name', { exact: true }).fill('My Lagos shortlist');
+  await savedEditor.getByLabel('City', { exact: true }).fill('Lagos');
+  await savedEditor.getByRole('button', { name: 'Save search settings' }).click();
+  await expect(
+    page.getByRole('link', { name: 'My Lagos shortlist →', exact: true }),
+  ).toHaveAttribute('href', /city=Lagos/);
+  await expect(page.getByRole('link', { name: 'Demo Backend →', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search history', exact: true }).click();
+  await expect(
+    page.getByText('Your next filtered search will appear here.', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: 'Privacy', exact: true }).click();
+  await page.getByLabel('Remember my recent job searches.').uncheck();
+  await page.getByRole('button', { name: 'Save privacy preferences' }).click();
+  await expect(page.getByText('Preferences saved.', { exact: true })).toBeVisible();
+  const { rows } = await pool.query(
+    "select count(*)::integer as count from search_history where user_id='demo-candidate'",
+  );
+  expect(rows[0].count).toBe(0);
+  await pool.query(
+    "insert into notifications(user_id,title,body,dedupe_key) values('demo-candidate','Controlled E2E update','Explicit test notification','e2e-read-update') on conflict(dedupe_key) do update set read_at=null",
+  );
+  await page.goto('/dashboard');
+  const notification = page
+    .locator('.workspace-row')
+    .filter({ has: page.getByRole('heading', { name: 'Controlled E2E update', exact: true }) });
+  await notification.getByRole('button', { name: 'Mark read', exact: true }).click();
+  await expect(notification.getByText('Read', { exact: true })).toBeVisible();
+});
 test('employer drafts a job and submits it for approval', async ({ page }) => {
   await signIn(page, 'employer@example.invalid');
   await page.goto('/employers');

@@ -16,6 +16,8 @@ Tests use PGlite with the real PostgreSQL SQL migrations and `pg_trgm`. Coverage
 
 PGlite serializes one engine's work. Its concurrent replay test proves unique transactional state under that harness, not a multi-host PostgreSQL load test.
 
+`tests/integration/candidate-preferences.test.ts` uses real migrations and the actual platform route handler with controlled auth/email/rate-limit boundaries. It covers default-off history, explicit consent, deduplication, 50-entry/90-day limits, concurrent opt-out, account erasure, exports, cross-account edits/deletes, origin checks, alert changes, global email opt-out, in-app-only delivery, read/unread ownership, duplicate worker claims, provider failures, retry identity and crash-window review. External email and Redis behavior are not established by those mocks.
+
 ## Browser suite
 
 Use an isolated database. Set `APP_ENV=test`, `DEMO_MODE=true`, `EMAIL_TRANSPORT=development`, a random test auth secret, `SITE_URL=http://localhost:3000`, and valid local database/Redis URLs.
@@ -34,6 +36,8 @@ npm run test:e2e
 ```
 
 CI runs this topology automatically with PostgreSQL 17 and Redis 7.4. Desktop Chromium and a mobile viewport exercise public HTML/canonicals, search/pagination, mobile filters, saved jobs, alerts, native application confirmation, external destination transparency, employer drafts, administrator controls, denied anonymous access, registration/verification and password recovery.
+
+The candidate preference browser scenario additionally enables/clears/disables history, selects in-app alerts, edits alert frequency and saved-search criteria, and marks a controlled notification as read. Test discovery is separate from browser execution; no passing browser result is claimed while the hosted runner is blocked.
 
 These are explicit fictional test fixtures, never evidence of live vacancies. Production JobPosting behavior is separately covered with validated non-demo unit records. Provider outages/duplicates/payment rollback and malformed input are integration scenarios rather than browser tests.
 

@@ -19,6 +19,10 @@ Global administrator is never accepted from a sign-up payload. Employer privileg
 
 Every applicant/file query checks candidate ownership or a relevant employer membership. Application internal notes are excluded from candidate exports/events. Suspended users lose platform API access; administrative suspension also revokes sessions. Demo operator identities cannot resolve an authorized actor in production.
 
+Alert edits, saved-search edits, history deletion and notification read/unread operations check the authenticated account in their database predicate. A foreign or missing resource returns 404. Alert criteria/channel changes and resuming an alert require explicit consent. Preferences are server-validated; candidate preferences cannot grant an employer or administrator role. History opt-in time and preference-change audit events are persisted without copying search keywords into audit logs.
+
+The global email-alert switch cancels queued alert digests and is checked again by the worker before sending. It does not suppress essential verification/reset/application messages or in-app notifications. Profile `emailConsent` is a separate opt-in for optional account communications and does not substitute for job-alert consent. An email whose delivery has already begun cannot be recalled.
+
 ## Local email flow
 
 Use `EMAIL_TRANSPORT=development` only in development/test. Read the verification/reset link via `npm run mailbox -- recipient@example.com`; it is never exposed by a public mailbox endpoint. Staging and production require real sender configuration. The development email transport is rejected outside these two environments.

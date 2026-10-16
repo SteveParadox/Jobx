@@ -11,3 +11,11 @@ City/region/category/industry comparisons are case insensitive, and country code
 The initial adapter is PostgreSQL. An external search engine can replace the `searchJobs`/suggestions boundary while preserving visibility rules, authorization and query semantics. This release does not claim multilingual morphology or general semantic/AI search.
 
 Use `EXPLAIN (ANALYZE, BUFFERS)` against representative staging inventory before tuning indexes. Small fixture tests confirm behavior, not production latency or Core Web Vitals.
+
+## Saved searches and optional history
+
+Candidates can edit saved-search names and validated criteria in Dashboard → Alerts & searches. Stored searches start on page one. Saved searches are separate from automatic history and remain when history is disabled.
+
+Search history requires an explicit account opt-in in Dashboard → Privacy. A client POST after rendering a valid first results page records only authenticated, verified accounts whose current preference permits it. Anonymous searches, default unfiltered searches and pagination do not create history. Recording does not block public results. No anonymous identifier or third-party history service is used.
+
+The database deduplicates search criteria across paging, sorting, property order and case, keeps at most 50 entries per account, and hides records older than 90 days. The persistent worker deletes expired entries. Candidates can remove one entry, clear history, or disable it to erase all entries. Account deletion also removes history/preferences; exports include retained history. Concurrent recording and preference changes serialize on the account row so an in-flight request cannot restore history after opt-out. These controls do not replace the operator's privacy/legal review.

@@ -4,13 +4,19 @@ import { adminOverview, disableEmployer, seoHealth } from '@/domain/admin';
 import { cancelSubscription, checkout, reconcilePayment } from '@/domain/billing';
 import {
   candidateDashboard,
+  clearSearchHistory,
   createAlert,
   exportCandidateData,
+  markAllNotificationsRead,
+  markNotification,
+  recordSearch,
   recommendations,
   saveSearch,
   toggleSaved,
   trackExternal,
   unsubscribe,
+  updateAlert,
+  updateCandidatePreferences,
 } from '@/domain/candidates';
 import {
   applicationStages,
@@ -29,7 +35,7 @@ import {
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
-import { searchSchema, sourceSchema } from '@/domain/validation';
+import { savedSearchSchema, sourceSchema } from '@/domain/validation';
 import { removeResume, removeUserObjects, resumeAccess } from '@/integrations/storage';
 import { admin, currentActor, employerAccess, requireActor } from '@/lib/auth';
 import { env } from '@/lib/config';
@@ -126,11 +132,28 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       await unsubscribe(data.token);
       return { message: 'This alert is disabled.' };
     }
+    if (method === 'POST' && path === 'search-history') {
+      const filters = await body(req, z.unknown());
+      const actor = await currentActor(req);
+      if (!actor?.emailVerified) return { recorded: false };
+      await rateLimit('history:' + actor.id, 30, 60);
+      return recordSearch(actor, filters);
+    }
     const actor = await requireActor(req);
     if (method !== 'GET') await rateLimit('actor:' + actor.id, 60, 60);
     if (method === 'GET' && path === 'me')
       return { id: actor.id, name: actor.name, email: actor.email, role: actor.role };
     if (method === 'GET' && path === 'dashboard') return candidateDashboard(actor);
+    if (method === 'PUT' && path === 'preferences')
+      return updateCandidatePreferences(actor, await body(req, z.unknown()));
+    if (method === 'DELETE' && p[0] === 'search-history' && p.length <= 2)
+      return clearSearchHistory(actor, p[1] ? uuid(p[1]) : undefined);
+    if (method === 'POST' && path === 'notifications/read-all')
+      return markAllNotificationsRead(actor);
+    if (method === 'PATCH' && p[0] === 'notifications' && p.length === 2) {
+      const data = await body(req, z.object({ read: z.boolean() }));
+      return markNotification(actor, uuid(p[1]), data.read);
+    }
     if (method === 'GET' && path === 'recommendations') return recommendations(actor);
     if (method === 'GET' && path === 'export')
       return new Response(JSON.stringify(await exportCandidateData(actor), null, 2), {
@@ -154,12 +177,15 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
         );
       await removeUserObjects(actor);
       await db.transaction(async (tx) => {
+        await tx.select().from(s.user).where(eq(s.user.id, actor.id)).for('update');
         await tx.delete(s.session).where(eq(s.session.userId, actor.id));
         await tx.delete(s.account).where(eq(s.account.userId, actor.id));
         await tx.delete(s.profiles).where(eq(s.profiles.userId, actor.id));
         await tx.delete(s.alerts).where(eq(s.alerts.userId, actor.id));
         await tx.delete(s.savedJobs).where(eq(s.savedJobs.userId, actor.id));
         await tx.delete(s.savedSearches).where(eq(s.savedSearches.userId, actor.id));
+        await tx.delete(s.searchHistory).where(eq(s.searchHistory.userId, actor.id));
+        await tx.delete(s.candidatePreferences).where(eq(s.candidatePreferences.userId, actor.id));
         await tx.delete(s.resumes).where(eq(s.resumes.userId, actor.id));
         await tx.delete(s.applications).where(eq(s.applications.userId, actor.id));
         await tx.delete(s.notifications).where(eq(s.notifications.userId, actor.id));
@@ -219,31 +245,34 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     }
     if (method === 'POST' && path === 'alerts')
       return createAlert(actor, await body(req, z.unknown()));
-    if (method === 'DELETE' && p[0] === 'alerts') {
-      await db
+    if (method === 'DELETE' && p[0] === 'alerts' && p.length === 2) {
+      const [removed] = await db
         .delete(s.alerts)
-        .where(and(eq(s.alerts.id, uuid(p[1])), eq(s.alerts.userId, actor.id)));
+        .where(and(eq(s.alerts.id, uuid(p[1])), eq(s.alerts.userId, actor.id)))
+        .returning({ id: s.alerts.id });
+      requireValue(removed);
       return { deleted: true };
     }
-    if (method === 'PATCH' && p[0] === 'alerts') {
-      const data = await body(req, z.object({ enabled: z.boolean() }));
-      await db
-        .update(s.alerts)
-        .set(data)
-        .where(and(eq(s.alerts.id, uuid(p[1])), eq(s.alerts.userId, actor.id)));
-      return { saved: true };
-    }
-    if (method === 'POST' && path === 'saved-searches') {
-      const data = await body(
-        req,
-        z.object({ name: z.string().min(2).max(100), filters: searchSchema }),
+    if (method === 'PATCH' && p[0] === 'alerts' && p.length === 2)
+      return updateAlert(actor, uuid(p[1]), await body(req, z.unknown()));
+    if (
+      (method === 'POST' && path === 'saved-searches') ||
+      (method === 'PATCH' && p[0] === 'saved-searches' && p.length === 2)
+    ) {
+      const data = await body(req, savedSearchSchema);
+      return saveSearch(
+        actor,
+        data.name,
+        data.filters,
+        method === 'PATCH' ? uuid(p[1]) : undefined,
       );
-      return saveSearch(actor, data.name, data.filters);
     }
-    if (method === 'DELETE' && p[0] === 'saved-searches') {
-      await db
+    if (method === 'DELETE' && p[0] === 'saved-searches' && p.length === 2) {
+      const [removed] = await db
         .delete(s.savedSearches)
-        .where(and(eq(s.savedSearches.id, uuid(p[1])), eq(s.savedSearches.userId, actor.id)));
+        .where(and(eq(s.savedSearches.id, uuid(p[1])), eq(s.savedSearches.userId, actor.id)))
+        .returning({ id: s.savedSearches.id });
+      requireValue(removed);
       return { deleted: true };
     }
     if (method === 'POST' && path === 'applications')

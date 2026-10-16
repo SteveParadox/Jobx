@@ -46,14 +46,14 @@ The command prints three fixture accounts and their deliberately public developm
 
 ## Working areas
 
-| Area             | Routes / behavior                                                                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Public discovery | `/`, `/jobs`, `/remote-jobs`, `/job/:uuid/:slug`, `/companies`, `/companies/:slug`                                                      |
-| Candidate        | `/auth`, `/dashboard`: profile, saved jobs/searches, alerts, native applications, external tracking, private PDFs, export/erasure       |
-| Employer         | `/employers`: organizations, drafts, preview, review submission, pause/close, applicants, internal notes, invitations, billing, metrics |
-| Administration   | `/admin`: verification, moderation, source permissions/imports, reports, SEO, content, users, payments, quarantine, support, audit log  |
-| SEO              | `/sitemap.xml`, `/sitemaps/:kind/:page.xml`, `/robots.txt`; eligible production job details only receive JobPosting                     |
-| Operations       | `/api/health` for process liveness, `/api/ready` for database/Redis/fresh worker heartbeat                                              |
+| Area             | Routes / behavior                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public discovery | `/`, `/jobs`, `/remote-jobs`, `/job/:uuid/:slug`, `/companies`, `/companies/:slug`                                                                                   |
+| Candidate        | `/auth`, `/dashboard`: profile, saved jobs/searches, optional history, editable email/in-app alerts, read/unread updates, applications, private PDFs, export/erasure |
+| Employer         | `/employers`: organizations, drafts, preview, review submission, pause/close, applicants, internal notes, invitations, billing, metrics                              |
+| Administration   | `/admin`: verification, moderation, source permissions/imports, reports, SEO, content, users, payments, quarantine, support, audit log                               |
+| SEO              | `/sitemap.xml`, `/sitemaps/:kind/:page.xml`, `/robots.txt`; eligible production job details only receive JobPosting                                                  |
+| Operations       | `/api/health` for process liveness, `/api/ready` for database/Redis/fresh worker heartbeat                                                                           |
 
 All privileged API operations enforce server-side authorization. Public browsing and external application destinations do not require registration. Account writes require verified email. Sources default disabled and need recorded display permission.
 

@@ -2,6 +2,7 @@ import { AlertForm, SaveSearch } from '@/components/actions';
 import { Filters } from '@/components/filters';
 import { JobCard } from '@/components/job-card';
 import { SearchForm } from '@/components/search-form';
+import { SearchHistoryRecorder } from '@/components/search-history';
 import { Empty, Notice } from '@/components/ui';
 import { searchJobs } from '@/domain/search';
 import { metadata } from '@/domain/seo';
@@ -45,6 +46,7 @@ export async function Results({
     '/jobs?' + new URLSearchParams({ ...clean, page: String(page) });
   return (
     <>
+      {filters && env.DATABASE_URL && <SearchHistoryRecorder filters={filters} />}
       <div className="page-header">
         <div className="container">
           <div className="eyebrow">EXPLORE WHAT’S NEXT</div>

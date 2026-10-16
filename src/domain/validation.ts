@@ -143,6 +143,19 @@ export const alertSchema = z.object({
   channel: z.enum(['email', 'in_app']),
   consent: z.literal(true),
 });
+export const alertUpdateSchema = alertSchema
+  .omit({ consent: true })
+  .partial()
+  .extend({ enabled: z.boolean().optional(), consent: z.literal(true).optional() })
+  .refine((v) => Object.keys(v).some((key) => key !== 'consent'), 'Choose a field to update');
+export const candidatePreferencesSchema = z.object({
+  emailAlertsEnabled: z.boolean(),
+  searchHistoryEnabled: z.boolean(),
+});
+export const savedSearchSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  filters: searchSchema,
+});
 export const sourceSchema = z.object({
   employerId: z.uuid(),
   provider: z.enum(['greenhouse', 'lever', 'lever_eu', 'manual_json', 'manual_csv', 'manual_xml']),

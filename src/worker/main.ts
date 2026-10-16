@@ -1,5 +1,6 @@
 import { closeDb, getDb } from '@/db';
 import * as s from '@/db/schema';
+import { pruneSearchHistory } from '@/domain/candidates';
 import { pruneRawPayloads, syncSource } from '@/domain/ingestion';
 import { expireJobs } from '@/domain/jobs';
 import { deliverNotification, generateDigests } from '@/domain/notifications';
@@ -32,6 +33,7 @@ async function tick() {
   await expireJobs();
   await generateDigests();
   await pruneRawPayloads();
+  await pruneSearchHistory();
   const commands = await db.select().from(s.outbox).where(isNull(s.outbox.dispatchedAt)).limit(100);
   for (const command of commands) {
     await queue.add(command.topic, command.payload, { jobId: 'outbox-' + command.id });
