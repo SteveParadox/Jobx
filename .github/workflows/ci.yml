@@ -1,0 +1,72 @@
+name: Platform verification
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: careeratlas
+          POSTGRES_USER: careeratlas
+          POSTGRES_PASSWORD: careeratlas
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U careeratlas" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4
+        ports: [6379:6379]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      APP_ENV: test
+      SITE_URL: http://localhost:3000
+      DATABASE_URL: postgresql://careeratlas:careeratlas@localhost:5432/careeratlas
+      REDIS_URL: redis://localhost:6379
+      AUTH_SECRET: ci-only-fixture-secret-never-use-in-production-2026
+      EMAIL_TRANSPORT: development
+      DEMO_MODE: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+        env:
+          DEMO_MODE: 'false'
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Start web and persistent worker
+        run: |
+          npm run start > /tmp/careeratlas-web.log 2>&1 &
+          npm run worker > /tmp/careeratlas-worker.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:3000/api/ready; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/careeratlas-web.log /tmp/careeratlas-worker.log
+          exit 1
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: verification-failure
+          path: |
+            playwright-report/
+            test-results/
+            /tmp/careeratlas-web.log
+            /tmp/careeratlas-worker.log

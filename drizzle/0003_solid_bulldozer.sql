@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "resume_required" boolean DEFAULT false NOT NULL;
