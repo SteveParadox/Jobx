@@ -2,28 +2,24 @@ import { closeDb, getDb } from '@/db';
 import * as s from '@/db/schema';
 import { pruneSearchHistory } from '@/domain/candidates';
 import { pruneRawPayloads, syncSource } from '@/domain/ingestion';
+import { processIngestionTask } from '@/domain/ingestion-tasks';
+import { expireSourceAuthorizations } from '@/domain/source-management';
 import { expireJobs } from '@/domain/jobs';
 import { deliverNotification, generateDigests } from '@/domain/notifications';
 import { submitIndexing } from '@/integrations/indexing';
 import { assertRuntime, env } from '@/lib/config';
 import { log } from '@/lib/log';
+import { queueConnection } from '@/lib/queue';
 import { Queue, Worker } from 'bullmq';
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
+import { tickIngestion } from './ingestion';
 assertRuntime();
-const parsed = new URL(env.REDIS_URL!);
-const connection = {
-  host: parsed.hostname,
-  port: Number(parsed.port || 6379),
-  username: parsed.username || undefined,
-  password: decodeURIComponent(parsed.password) || undefined,
-  ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
-  maxRetriesPerRequest: null,
-};
+const connection = queueConnection();
 const queue = new Queue('careeratlas', {
   connection,
   defaultJobOptions: {
     attempts: 5,
-    backoff: { type: 'exponential', delay: 30000 },
+    backoff: { type: 'exponential', delay: 30000, jitter: 0.25 },
     removeOnComplete: { age: 86400, count: 1000 },
     removeOnFail: { age: 7 * 86400, count: 1000 },
   },
@@ -31,30 +27,11 @@ const queue = new Queue('careeratlas', {
 async function tick() {
   const db = getDb();
   await expireJobs();
+  await expireSourceAuthorizations();
   await generateDigests();
   await pruneRawPayloads();
   await pruneSearchHistory();
-  const commands = await db.select().from(s.outbox).where(isNull(s.outbox.dispatchedAt)).limit(100);
-  for (const command of commands) {
-    await queue.add(command.topic, command.payload, { jobId: 'outbox-' + command.id });
-    await db.update(s.outbox).set({ dispatchedAt: new Date() }).where(eq(s.outbox.id, command.id));
-  }
-  const due = await db
-    .select()
-    .from(s.sources)
-    .where(
-      and(
-        eq(s.sources.enabled, true),
-        inArray(s.sources.provider, ['greenhouse', 'lever', 'lever_eu']),
-        sql`(${s.sources.lastSuccessAt} is null or ${s.sources.lastSuccessAt}<now()-(${s.sources.intervalMinutes}||' minutes')::interval)`,
-      ),
-    );
-  for (const source of due)
-    await queue.add(
-      'sync',
-      { id: source.id },
-      { jobId: 'sync-' + source.id + '-' + Math.floor(Date.now() / 60000) },
-    );
+  await tickIngestion(queue);
   const pending = await db
     .select({ id: s.deliveries.id })
     .from(s.deliveries)
@@ -89,6 +66,8 @@ const worker = new Worker(
         return syncSource(job.data.sourceId, fetch, job.data.records);
       case 'sync':
         return syncSource(job.data.id);
+      case 'ingestion':
+        return processIngestionTask(job.data.taskId);
       case 'email':
         return deliverNotification(job.data.id);
       case 'index':

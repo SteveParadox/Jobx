@@ -9,8 +9,8 @@ import {
   exportCandidateData,
   markAllNotificationsRead,
   markNotification,
-  recordSearch,
   recommendations,
+  recordSearch,
   saveSearch,
   toggleSaved,
   trackExternal,
@@ -18,6 +18,7 @@ import {
   updateAlert,
   updateCandidatePreferences,
 } from '@/domain/candidates';
+import { controlIngestionTask, enqueueSource, ingestionOverview } from '@/domain/ingestion-tasks';
 import {
   applicationStages,
   audit,
@@ -34,13 +35,15 @@ import {
   verifyEmployer,
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
+import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
-import { savedSearchSchema, sourceSchema } from '@/domain/validation';
+import { savedSearchSchema } from '@/domain/validation';
 import { removeResume, removeUserObjects, resumeAccess } from '@/integrations/storage';
 import { admin, currentActor, employerAccess, requireActor } from '@/lib/auth';
 import { env } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
 import { body, endpoint, rateLimit, sameOrigin } from '@/lib/http';
+import { queueHealth } from '@/lib/queue';
 import { digest, sanitizeDescription } from '@/lib/security';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -429,6 +432,15 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       if (method === 'GET' && path === 'admin/metrics')
         return (await import('@/domain/metrics')).platformMetrics(actor);
       if (method === 'GET' && path === 'admin/overview') return adminOverview(actor);
+      if (method === 'GET' && path === 'admin/ingestion')
+        return { ...(await ingestionOverview()), queue: await queueHealth() };
+      if (
+        method === 'POST' &&
+        p[1] === 'ingestion-tasks' &&
+        p.length === 4 &&
+        ['cancel', 'retry'].includes(p[3])
+      )
+        return controlIngestionTask(actor, uuid(p[2]), p[3] as 'cancel' | 'retry');
       if (method === 'GET' && path === 'admin/seo') return seoHealth(actor);
       if (method === 'POST' && p[1] === 'checkout' && p[3] === 'reconcile') {
         const attempt = requireValue(
@@ -466,41 +478,40 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
           throw new AppError(400, 'Import format must match the authorized source');
         const { parseAuthorizedImport } = await import('@/integrations/imports');
         const records = parseAuthorizedImport(data.format, data.content);
-        const [command] = await db
-          .insert(s.outbox)
-          .values({
-            topic: 'import',
-            payload: { sourceId: data.sourceId, records },
-            dedupeKey: 'import:' + crypto.randomUUID(),
-          })
-          .returning();
-        await db.insert(s.auditLogs).values({
-          actorId: actor.id,
-          action: 'source.import_queued',
-          entityId: data.sourceId,
-          detail: { count: records.length, commandId: command.id },
-        });
-        return { queued: true, count: records.length };
+        return {
+          ...(await enqueueSource(actor, source.id, 'import', records)),
+          count: records.length,
+        };
       }
       if (method === 'POST' && path === 'admin/sources') {
-        const data = sourceSchema.parse(await body(req, z.unknown()));
-        return (await db.insert(s.sources).values(data).returning())[0];
+        return registerSource(actor, await body(req, z.unknown()));
       }
-      if (method === 'PATCH' && p[1] === 'sources') {
+      if (method === 'PUT' && p[1] === 'sources' && p.length === 3)
+        return updateSource(actor, uuid(p[2]), await body(req, z.unknown()));
+      if (method === 'POST' && p[1] === 'sources' && p[3] === 'review' && p.length === 4) {
+        const data = await body(
+          req,
+          z.object({
+            status: z.enum(['approved', 'revoked']),
+            evidence: z.string().min(20).max(5000),
+          }),
+        );
+        return reviewSource(actor, uuid(p[2]), data.status, data.evidence);
+      }
+      if (method === 'PATCH' && p[1] === 'sources' && p.length === 3) {
         const data = await body(req, z.object({ enabled: z.boolean() }));
         await (
           await import('@/domain/ingestion')
         ).setSourceEnabled(actor.id, uuid(p[2]), data.enabled);
         return { saved: true };
       }
-      if (method === 'POST' && p[1] === 'sources' && p[3] === 'sync') {
-        await db.insert(s.outbox).values({
-          topic: 'sync',
-          payload: { id: uuid(p[2]) },
-          dedupeKey: 'manual:' + crypto.randomUUID(),
-        });
-        return { queued: true };
-      }
+      if (
+        method === 'POST' &&
+        p[1] === 'sources' &&
+        p.length === 4 &&
+        ['sync', 'test'].includes(p[3])
+      )
+        return enqueueSource(actor, uuid(p[2]), p[3] as 'sync' | 'test');
       if (method === 'POST' && p[1] === 'employers' && p[3] === 'verify') {
         const data = await body(
           req,

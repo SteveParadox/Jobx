@@ -31,3 +31,9 @@ npm run db:migrate
 Review generated SQL before committing. Every schema change needs a forward migration and a backup/restore consideration. Never edit an already applied migration. The integration suite applies every journaled SQL file to a fresh engine and tests transactional rollback. It also exercises concurrency via one engine; genuine multi-process contention needs staging PostgreSQL load tests.
 
 Keep backups encrypted and test restoring them into an isolated environment. Never restore a production database into an indexable development app. See OPERATIONS for recovery.
+
+## Autonomous ingestion migrations
+
+`0006_yellow_kylun.sql` adds approved source endpoints/conditions/revisions, task leases and results, host request budgets, provenance fields, source ownership and run metrics. `0007_ingestion_guards.sql` adds active-task uniqueness, source/sync/retention indexes and lifecycle constraints. It backfills source ownership except for records already edited by a human, then disables legacy sources pending explicit approval under the new policy. Review/reapprove those sources after upgrade; their historical jobs and source mappings are retained.
+
+The unused duplicate SQL/snapshot artifacts from an earlier development generation were removed; they were never referenced by the migration journal. All previously journaled SQL remains unchanged. A fresh database migration and `db:generate` consistency are checked by the test workflow. Never apply a directory of SQL files independently of the journal.

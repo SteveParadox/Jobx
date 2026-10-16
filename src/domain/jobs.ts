@@ -129,6 +129,7 @@ export async function saveJob(
       .update(s.jobs)
       .set({
         ...values,
+        sourceOwnerId: null,
         slug: old.slug,
         status: old.status === 'active' ? 'pending' : old.status,
         version: old.version + 1,
@@ -184,6 +185,21 @@ export async function transitionJob(
         throw new AppError(409, 'This job cannot be submitted from its current state');
       status = 'pending';
     } else if (action === 'publish') {
+      if (job.sourceOwnerId) {
+        const [source] = await tx
+          .select()
+          .from(s.sources)
+          .where(eq(s.sources.id, job.sourceOwnerId));
+        if (
+          !source?.enabled ||
+          source.approvalStatus !== 'approved' ||
+          (source.authorizationExpiresAt && source.authorizationExpiresAt <= new Date())
+        )
+          throw new AppError(
+            409,
+            'The source must have current approval and be enabled before publication',
+          );
+      }
       if (job.status !== 'pending')
         throw new AppError(409, 'Only reviewed pending jobs can be published');
       if (company.verificationStatus !== 'verified' || company.disabled)

@@ -13,7 +13,7 @@ A modular monolith keeps one schema and one domain implementation. UI components
 | `src/db/schema.ts`, `drizzle/`                      | Drizzle mappings, SQL migrations, constraints and search indexes                             |
 | `src/domain/jobs.ts`                                | Publication lifecycle, organization ownership, quota enforcement, applications and audit     |
 | `src/domain/ingestion.ts`                           | Permission checks, idempotent source snapshots, conservative aliases, closure reconciliation |
-| `src/integrations/feeds.ts`, `imports.ts`           | Fixed-host ATS fetches; authorized CSV/XML/JSON parsing                                      |
+| `src/integrations/feeds.ts`, `imports.ts`           | ATS parsing; authorized upload parsing                                                       |
 | `src/domain/search.ts`                              | Server-side full-text, trigram relevance and structured filtering                            |
 | `src/domain/seo.ts`, `sitemaps.ts`                  | Metadata, eligibility, JSON-LD, canonical paths and sitemap membership                       |
 | `src/domain/candidates.ts`, `notifications.ts`      | Candidate data, alert preferences, deduplication and email delivery                          |
@@ -24,6 +24,8 @@ A modular monolith keeps one schema and one domain implementation. UI components
 ## Durable work
 
 The minute scheduler queues source synchronization, email and eligible indexing tasks. Administrator manual imports and sync commands first enter the PostgreSQL `outbox`. Dispatch uses a stable BullMQ job ID, then acknowledges the outbox row. Indexing and email delivery also retain their own authoritative PostgreSQL state. Worker crashes before acknowledgement can replay safely. Configure Redis AOF, no-eviction and backups; neither a transient Redis instance nor serverless cron replaces this worker.
+
+`src/integrations/sources/` owns the adapter contract, guarded transport, normalization, HTTP/HTML/RSS/XML/JSON/Ashby adapters, optional browser rendering and permitted application checks. `src/domain/source-management.ts` owns approval/revision boundaries. `src/domain/ingestion-tasks.ts` and `src/worker/ingestion.ts` coordinate durable schedules, leases, jittered retries, dead-letter review and queue dispatch. They persist into the same canonical jobs/search model.
 
 ## Concurrency and integrity
 

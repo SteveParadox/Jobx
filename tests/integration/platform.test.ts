@@ -91,6 +91,12 @@ async function source() {
         removalPolicy: 'Remove confirmed closed listings',
         permittedFields: ['title', 'description', 'location', 'application', 'date'],
         enabled: true,
+        approvalStatus: 'approved',
+        endpointUrl: 'https://boards-api.greenhouse.io/v1/boards/fixture/jobs?content=true',
+        approvedHostname: 'boards-api.greenhouse.io',
+        applicationHostnames: ['careers.example.com'],
+        usageConditions: 'Explicit test fixture authorization only',
+        config: { robots: false },
       })
       .returning()
   )[0];
@@ -419,15 +425,14 @@ describe('ingestion snapshots', () => {
     expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
     expect((await ctx.db.select().from(s.mappings))[0].missingCount).toBe(0);
   });
-  it('rejects an entire malformed snapshot without silently discarding a record', async () => {
+  it('quarantines malformed records and prevents incomplete reconciliation', async () => {
     const src = await source();
     await syncSource(src.id, fetchRows(greenhouseRows([1])));
-    await expect(
-      syncSource(
-        src.id,
-        fetchRows({ jobs: [...greenhouseRows([1]).jobs, { id: 2, title: 'Bad' }] }),
-      ),
-    ).rejects.toThrow();
+    const result = await syncSource(
+      src.id,
+      fetchRows({ jobs: [...greenhouseRows([1]).jobs, { id: 2, title: 'Bad' }] }),
+    );
+    expect(result.complete).toBe(false);
     expect(await ctx.db.select().from(s.jobs)).toHaveLength(1);
     expect((await ctx.db.select().from(s.mappings))[0].missingCount).toBe(0);
     expect(await ctx.db.select().from(s.ingestionErrors)).toHaveLength(1);

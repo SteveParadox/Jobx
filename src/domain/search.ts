@@ -59,12 +59,15 @@ export const publicJobFields = {
   companyLogo: employers.logoUrl,
 };
 export type PublicJob = NonNullable<Awaited<ReturnType<typeof getPublicJob>>>;
+export const sourcePermission = () =>
+  sql`(${jobs.sourceOwnerId} is null or exists(select 1 from job_sources source where source.id=${jobs.sourceOwnerId} and source.enabled=true and source.approval_status='approved' and (source.authorization_expires_at is null or source.authorization_expires_at>now())))`;
 export function availability(now = new Date()) {
   return and(
     eq(jobs.status, 'active'),
     or(isNull(jobs.expiresAt), gt(jobs.expiresAt, now)),
     eq(employers.disabled, false),
     eq(employers.verificationStatus, 'verified'),
+    sourcePermission(),
     ...(isProduction || !env.DEMO_MODE
       ? [eq(jobs.isDemo, false), eq(employers.isDemo, false)]
       : []),
@@ -160,6 +163,7 @@ export async function getPublicJob(id: string) {
           sql`(${jobs.status}='active' or not exists(select 1 from source_job_mappings where job_id=${jobs.id}))`,
           eq(employers.disabled, false),
           eq(employers.verificationStatus, 'verified'),
+          sourcePermission(),
           ...(isProduction || !env.DEMO_MODE
             ? [eq(jobs.isDemo, false), eq(employers.isDemo, false)]
             : []),
@@ -199,5 +203,12 @@ export async function jobProvenance(jobId: string) {
     })
     .from(mappings)
     .innerJoin(sources, eq(mappings.sourceId, sources.id))
-    .where(eq(mappings.jobId, jobId));
+    .where(
+      and(
+        eq(mappings.jobId, jobId),
+        eq(sources.enabled, true),
+        eq(sources.approvalStatus, 'approved'),
+        or(isNull(sources.authorizationExpiresAt), gt(sources.authorizationExpiresAt, new Date())),
+      ),
+    );
 }

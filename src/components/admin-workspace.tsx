@@ -3,6 +3,7 @@ import type { adminOverview, seoHealth } from '@/domain/admin';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from './actions';
+import { IngestionWorkspace } from './ingestion-workspace';
 import { MetricsPanel } from './metrics-panel';
 import { Button, Notice } from './ui';
 type Serialized<T> = T extends Date
@@ -306,132 +307,7 @@ export function AdminWorkspace() {
         </section>
       )}
       {tab === 'Sources' && (
-        <>
-          <section className="panel">
-            <h2>Authorized data, accountable updates.</h2>
-            <p>
-              Manual CSV, XML and JSON sources are imported below after permission review. ATS feeds
-              use the scheduled worker.
-            </p>
-            <p>
-              No source is enabled by default. Record redistribution permission and permitted fields
-              before enabling a feed. Unknown structured location details always require moderation.
-            </p>
-            <form
-              className="form-grid"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const d = new FormData(e.currentTarget);
-                void run(
-                  () =>
-                    api('admin/sources', 'POST', {
-                      employerId: d.get('employerId'),
-                      provider: d.get('provider'),
-                      boardToken: d.get('boardToken'),
-                      permissionEvidence: d.get('permissionEvidence'),
-                      attribution: d.get('attribution'),
-                      permittedFields: ['title', 'description', 'location', 'application', 'date'],
-                      removalPolicy: d.get('removalPolicy'),
-                      intervalMinutes: Number(d.get('intervalMinutes')),
-                      enabled: false,
-                      autoPublish: false,
-                    }),
-                  'Source registered disabled. Enable it after checking permission.',
-                );
-              }}
-            >
-              <label>
-                Employer
-                <select name="employerId" required>
-                  {data.companies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Provider
-                <select name="provider">
-                  <option value="greenhouse">Greenhouse</option>
-                  <option value="lever">Lever Global</option>
-                  <option value="lever_eu">Lever EU</option>
-                  <option value="manual_json">Authorized JSON import</option>
-                  <option value="manual_csv">Authorized CSV import</option>
-                  <option value="manual_xml">Authorized XML import</option>
-                </select>
-              </label>
-              <label>
-                Board identifier
-                <input name="boardToken" required pattern="[a-zA-Z0-9_-]{1,100}" />
-              </label>
-              <label>
-                Attribution
-                <input name="attribution" required minLength={2} />
-              </label>
-              <label className="full-width">
-                Evidence authorizing display of title, description, location, dates & application
-                URLs
-                <textarea name="permissionEvidence" required minLength={20} />
-              </label>
-              <label className="full-width">
-                Removal obligations
-                <textarea name="removalPolicy" required minLength={10} />
-              </label>
-              <label>
-                Synchronization interval (minutes)
-                <input
-                  type="number"
-                  name="intervalMinutes"
-                  min={15}
-                  max={10080}
-                  defaultValue={60}
-                />
-              </label>
-              <Button disabled={busy}>Register authorized source</Button>
-            </form>
-          </section>
-          <section className="panel">
-            {data.sources.map(({ source, lastRun }) => (
-              <div className="workspace-row" key={source.id}>
-                <div>
-                  <h3>
-                    {source.provider} / {source.boardToken}
-                  </h3>
-                  <p>
-                    {source.enabled ? 'Enabled' : 'Disabled'} · Last run:{' '}
-                    {lastRun?.status ?? 'Never run'} · {lastRun?.count ?? 0} records
-                  </p>
-                  {lastRun?.error && <Notice error>{lastRun.error}</Notice>}
-                </div>
-                <div className="row-actions">
-                  <Button
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      run(() =>
-                        api('admin/sources/' + source.id, 'PATCH', { enabled: !source.enabled }),
-                      )
-                    }
-                  >
-                    {source.enabled ? 'Disable' : 'Enable'}
-                  </Button>
-                  <Button
-                    disabled={busy || !source.enabled || source.provider.startsWith('manual_')}
-                    onClick={() =>
-                      run(
-                        () => api('admin/sources/' + source.id + '/sync', 'POST'),
-                        'Sync command durably queued. The persistent worker will process it.',
-                      )
-                    }
-                  >
-                    Queue synchronization
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </section>
-        </>
+        <IngestionWorkspace sources={data.sources} companies={data.companies} run={run} />
       )}
       {tab === 'Sources' && (
         <section className="panel">

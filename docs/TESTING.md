@@ -51,3 +51,11 @@ These are explicit fictional test fixtures, never evidence of live vacancies. Pr
 - Validate genuine production URLs in Google's Rich Results Test/Search Console.
 
 Do not report these external checks as passed until their execution is recorded in IMPLEMENTATION_REPORT. The managed authoring environment may lack an approved browser-control surface; in that case local browser execution is skipped and CI is the verification path, not a claimed screenshot review.
+
+## Autonomous ingestion verification
+
+`tests/unit/ingestion-adapters.test.ts` covers recorded JSON/XML/RSS/HTML parsing, Ashby fields, public/mapped/private IP rejection, mixed DNS answers, guarded redirects, robots, MIME/byte/request budgets, timeouts, pagination, malformed/duplicate records, unknown claims and browser gating. `tests/integration/ingestion-pipeline.test.ts` integrates approval, source tests, canonical persistence, generated full-text search, alerts, updates, closure, permission expiry, idempotency, ownership protection, quarantine, cancellation, retries and injected transactional failure.
+
+With `TEST_REDIS_URL` pointing to an isolated broker, `tests/integration/ingestion-queue.test.ts` runs real BullMQ scheduling/outbox delivery, worker stop/restart, canonical job updates, source identity reuse and confirmed closure into search. It uses the migrated PGlite database and a recorded source transport; this is distinct from a real multi-process PostgreSQL test. GitHub CI enables this test with its Redis service. Without the variable, the broker case is explicitly skipped.
+
+Bash: `TEST_REDIS_URL=redis://localhost:6379 npm test`. Windows CMD: `set TEST_REDIS_URL=redis://localhost:6380`, then `npm test`. Do not point this suite at a production broker/database. The test uses a unique queue and removes only that queue. Browser scraping remains disabled until a permitted source and sandboxed browser worker have passed staging checks; the managed authoring environment did not execute Chromium.

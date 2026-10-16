@@ -23,3 +23,8 @@ COPY . .
 ENV NODE_ENV=production
 USER node
 CMD ["npm","run","worker"]
+FROM worker AS worker-browser
+USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN npx playwright install --with-deps chromium && chmod -R a+rX /opt/playwright
+USER node

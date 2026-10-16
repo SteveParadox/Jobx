@@ -12,7 +12,7 @@ The worker creates a durable minute scheduler. BullMQ jobs retry up to five time
 2. Verify the permission, board identifier, provider quota and employer identity.
 3. Do not bypass a provider block or protection.
 4. Re-enable the source only after resolution; queue sync in Admin → Sources.
-5. Review pending/restored listings. A temporary failed fetch never counts as a missing snapshot.
+5. Run a queued source test for the current revision, then review pending/restored listings. A temporary failed fetch never counts as a missing snapshot.
 
 A disabled sole source pauses its active records without deleting history. Two spaced successful complete snapshots are needed for absence closure.
 
@@ -39,3 +39,11 @@ For a serious incident: stop web writes and worker processing, preserve audit/pr
 ## Production measurement
 
 Core Web Vitals targets are goals, not measured results from small local fixtures. Configure real-user measurements only with appropriate consent and privacy settings. Review database slow queries, ingestion durations, failures and application conversion definitions. External apply clicks are not completed applications.
+
+## Ingestion dead-letter and replay
+
+Admin → Sources shows the most recent 100 source runs/tasks and quarantine records, plus queue counts and heartbeat. `ingestion_tasks` is the authoritative dead-letter view. Permanent failure or exhausted attempts sets source health to `dead_letter`, stopping automatic rescheduling without falsely expiring existing jobs. Resolve the exact error/permission issue, then use Retry task or a new queued test. Manual replay creates a fresh dispatch identity while database claiming prevents duplicate effective work.
+
+A lease-expired worker is recovered after ten minutes. A stale acknowledged command for an unclaimed task is reissued after ten minutes; pending commands remain durable during broker outages. Cancelling a task stops that occurrence. Disable the source to stop recurrence. Changed/revoked/expired permissions withdraw source-owned records and indexing membership; they do not erase forensic history or overwrite employer-managed copies.
+
+Configure monitoring for `dead_letter`, repeated source failures, overdue `next_sync_at`, expired leases, nonempty undispatched outbox, quarantine spikes and stale heartbeat. Raw payload retention needs the persistent minute worker. Source-specific confirmation counts/gaps are documented in JOB_INGESTION; never reset missing counters because a fetch failed.

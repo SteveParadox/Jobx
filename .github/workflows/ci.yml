@@ -47,6 +47,7 @@ jobs:
       - run: npm run test
         env:
           DEMO_MODE: 'false'
+          TEST_REDIS_URL: redis://localhost:6379
       - run: npm run db:migrate
       - run: npm run db:seed
       - run: npm run build

@@ -7,12 +7,14 @@
 - Exact-origin mutation checks, Redis limits and per-operation role/tenant checks.
 - Parameterized Drizzle/SQL, query/lock timeouts and explicit constraints.
 - Sanitized descriptions/editorial HTML and escaped JSON-LD.
-- Fixed-host ATS fetching, constrained board identifiers, no redirects, timeouts/body caps.
-- HTTPS application URLs without credentials, IP literals, private-style suffixes or custom ports. These destinations are not fetched by the application; no arbitrary URL fetch feature is exposed.
+- Fixed-host ATS discovery and explicit approval for custom endpoint hostnames; DNS-pinned public-IP TLS connections, guarded same-host redirects, robots checks, MIME/size/time limits and host pacing.
+- HTTPS application URLs without userinfo, IP literals, private-style suffixes or custom ports; approved destination hostnames. Optional link fetching requires separate permission and uses the guarded transport without source credentials.
 - Private PDF keys, content/header/size validation, quarantine and short-lived authorized attachment downloads.
 - Database uniqueness, transactional settlement, audit records and source permission evidence.
 - Signed webhook handling and authoritative provider verification.
 - Appropriate response security headers; staging/demo noindex protections.
+
+Source approval/configuration revisions, source leases and one-active-task constraints protect asynchronous collection. Revocation/expiry withdraws source-owned jobs from search and indexing surfaces. Browser execution is disabled by default and uses the optional sandboxed worker; it has not been runtime-validated locally. See JOB_INGESTION for the exact network boundary and remaining staging checks.
 
 ## Documents and malware
 

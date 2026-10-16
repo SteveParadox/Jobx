@@ -1,0 +1,20 @@
+{
+  "jobs": [
+    {
+      "externalId": "fixture-engineer-1",
+      "sourceUrl": "https://careers.example.com/jobs/one",
+      "applyUrl": "https://careers.example.com/jobs/one/apply?utm_source=fixture",
+      "title": "Fixture Backend Engineer",
+      "descriptionHtml": "<p>Explicit recorded test fixture, not a real vacancy. Build reliable backend services, review changes, test database transactions, and maintain production systems with a fictional engineering team.</p><script>alert('unsafe')</script>",
+      "locationLabel": "Lagos, Nigeria",
+      "country": "NG",
+      "city": "Lagos",
+      "workplace": "onsite",
+      "employmentType": "FULL_TIME",
+      "skills": ["TypeScript", "PostgreSQL"],
+      "originalPostedAt": "2025-01-15T08:00:00.000Z"
+    }
+  ],
+  "next": null,
+  "complete": true
+}

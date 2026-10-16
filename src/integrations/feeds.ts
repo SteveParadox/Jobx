@@ -24,6 +24,16 @@ const lever = z.object({
   lists: z.array(z.object({ text: z.string(), content: z.string() })).optional(),
   additional: z.string().optional(),
   createdAt: z.number().optional(),
+  country: z.string().nullable().optional(),
+  workplaceType: z.string().optional(),
+  salaryRange: z
+    .object({
+      currency: z.string(),
+      interval: z.string(),
+      min: z.number().nullable().optional(),
+      max: z.number().nullable().optional(),
+    })
+    .optional(),
 });
 // Location labels stay verbatim. Countries, remote eligibility and compensation remain unknown
 // until a human or a source's explicit structured fields establish them.
@@ -68,7 +78,28 @@ export function parseLever(payload: unknown): FeedJob[] {
           ].join('\n'),
         ),
         locationLabel: row.categories?.location ?? 'Location not specified',
-        workplace: 'unknown',
+        workplace:
+          (
+            { 'on-site': 'onsite', hybrid: 'hybrid', remote: 'remote' } as Record<
+              string,
+              'onsite' | 'hybrid' | 'remote'
+            >
+          )[row.workplaceType ?? ''] ?? 'unknown',
+        country: /^[A-Za-z]{2}$/.test(row.country ?? '') ? row.country!.toUpperCase() : undefined,
+        ...(row.salaryRange &&
+        /^[A-Z]{3}$/.test(row.salaryRange.currency) &&
+        ['hour', 'day', 'week', 'month', 'year'].includes(row.salaryRange.interval.toLowerCase()) &&
+        [row.salaryRange.min, row.salaryRange.max]
+          .filter((value) => value != null)
+          .every((value) => Number.isInteger(value))
+          ? {
+              salaryMin: row.salaryRange.min,
+              salaryMax: row.salaryRange.max,
+              currency: row.salaryRange.currency,
+              salaryPeriod: row.salaryRange.interval.toUpperCase() as
+                'HOUR' | 'DAY' | 'WEEK' | 'MONTH' | 'YEAR',
+            }
+          : {}),
         remoteCountries: [],
         skills: [],
         applicationMethod: 'external',

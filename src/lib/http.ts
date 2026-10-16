@@ -4,6 +4,7 @@ import { brand, env, isProduction } from './config';
 import { AppError } from './errors';
 import { log } from './log';
 import { digest } from './security';
+import { SourceError } from '@/integrations/sources/contracts';
 let redis: Redis | undefined;
 export function getRedis() {
   if (!env.REDIS_URL) throw new AppError(503, 'Redis is not configured');
@@ -61,6 +62,16 @@ export async function endpoint(fn: () => Promise<unknown>) {
     if (result instanceof Response) return result;
     return Response.json(result ?? { ok: true }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (error instanceof SourceError)
+      return Response.json(
+        { error: error.message, code: error.code },
+        {
+          status: ['NOT_APPROVED', 'DISABLED', 'BUSY', 'PERMISSION'].includes(error.code)
+            ? 409
+            : 400,
+          headers: { 'Cache-Control': 'no-store' },
+        },
+      );
     if (error instanceof AppError)
       return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof ZodError)

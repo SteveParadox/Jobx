@@ -1,3 +1,9 @@
+import {
+  ATS_PROVIDERS,
+  MANUAL_PROVIDERS,
+  NETWORK_PROVIDERS,
+  sourceConfigSchema,
+} from '@/integrations/sources/contracts';
 import { publicUrl } from '@/lib/security';
 import { z } from 'zod';
 const https = z
@@ -156,17 +162,76 @@ export const savedSearchSchema = z.object({
   name: z.string().trim().min(2).max(100),
   filters: searchSchema,
 });
-export const sourceSchema = z.object({
-  employerId: z.uuid(),
-  provider: z.enum(['greenhouse', 'lever', 'lever_eu', 'manual_json', 'manual_csv', 'manual_xml']),
-  boardToken: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
-  permissionEvidence: z.string().trim().min(20).max(10000),
-  attribution: z.string().trim().min(2).max(500),
-  permittedFields: z
-    .array(z.enum(['title', 'description', 'location', 'application', 'date']))
-    .min(1),
-  removalPolicy: z.string().min(10).max(2000),
-  intervalMinutes: z.number().int().min(15).max(10080),
-  autoPublish: z.literal(false).default(false),
-  enabled: z.boolean().default(false),
-});
+export const sourceSchema = z
+  .object({
+    employerId: z.uuid(),
+    provider: z
+      .string()
+      .max(80)
+      .refine(
+        (value) =>
+          [...NETWORK_PROVIDERS, ...MANUAL_PROVIDERS].includes(
+            value as (typeof NETWORK_PROVIDERS)[number],
+          ) || /^licensed_[a-z0-9_]+$/.test(value),
+        'Unsupported source provider',
+      ),
+    boardToken: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
+    permissionEvidence: z.string().trim().min(20).max(10000),
+    attribution: z.string().trim().min(2).max(500),
+    permittedFields: z
+      .array(
+        z.enum([
+          'title',
+          'description',
+          'location',
+          'application',
+          'date',
+          'salary',
+          'skills',
+          'employment',
+          'experience',
+        ]),
+      )
+      .min(1),
+    removalPolicy: z.string().min(10).max(2000),
+    intervalMinutes: z.number().int().min(15).max(10080),
+    autoPublish: z.boolean().default(false),
+    enabled: z.literal(false).default(false),
+    endpointUrl: https.optional(),
+    applicationHostnames: z.array(z.string().trim().toLowerCase().min(3).max(250)).min(1).max(20),
+    usageConditions: z.string().trim().min(10).max(5000),
+    authorizationExpiresAt: z.iso.datetime().nullable().optional(),
+    missingConfirmations: z.number().int().min(2).max(10).default(2),
+    missingGraceMinutes: z.number().int().min(15).max(10080).default(60),
+    config: sourceConfigSchema.default(sourceConfigSchema.parse({})),
+  })
+  .superRefine((source, ctx) => {
+    if (
+      !source.provider.startsWith('manual_') &&
+      !ATS_PROVIDERS.includes(source.provider as (typeof ATS_PROVIDERS)[number]) &&
+      !source.endpointUrl
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'An employer-approved HTTPS endpoint is required',
+        path: ['endpointUrl'],
+      });
+    if (source.provider.startsWith('authorized_') && !source.config.robots)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Employer page/feed adapters must check robots.txt',
+        path: ['config'],
+      });
+    if (source.provider === 'authorized_browser' && !source.config.browserPermitted)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Explicit browser-execution permission is required',
+        path: ['config'],
+      });
+    if (source.config.checkApplicationLinks && !source.config.applicationFetchPermitted)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Application-link checking requires explicit fetch permission',
+        path: ['config'],
+      });
+  });

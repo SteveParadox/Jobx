@@ -10,12 +10,15 @@ Redis and BullMQ isolate durable work from web requests. PostgreSQL records the 
 
 ## Ingestion status
 
-| Adapter                 | Code status                                          | Live connection                               |
-| ----------------------- | ---------------------------------------------------- | --------------------------------------------- |
-| Greenhouse Job Board    | Implemented, controlled-response tested              | No employer authorization configured          |
-| Lever global/EU         | Implemented, parsing/pagination guard tested         | No employer authorization configured          |
-| Authorized JSON/CSV/XML | Implemented, validation tested, durable import queue | Requires an authorized complete source upload |
-| Employer submissions    | Implemented through verified accounts and review     | Requires a deployed database/operator         |
+| Adapter                      | Implementation / verification                                                                      | Live authorization                                                 |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Greenhouse, Lever global/EU  | Guarded ATS discovery, parsing, bounded pagination and reconciliation                              | None configured                                                    |
+| Ashby public Job Postings    | Listed-job filtering, structured fields, original-date safeguards; recorded parsing tests          | None configured                                                    |
+| Authorized JSON/XML/RSS/HTML | Guarded HTTP, declarative mapping/selectors, quarantine and completeness policy; recorded fixtures | Requires real employer approval                                    |
+| Authorized browser           | Gated Playwright adapter and optional sandboxed worker image; Chromium execution not performed     | Requires explicit source/browser permission and staging validation |
+| Licensed providers           | `licensed_json` plus trusted `SourceAdapter` extension interface; secret references only           | Requires provider license/credentials                              |
+| Manual JSON/CSV/XML          | Validated complete upload, durable task, source approval and canonical persistence                 | Requires authorized upload                                         |
+| Employer submissions         | Verified accounts, native workflow and moderation                                                  | Requires deployed operator/database                                |
 
 There are no fabricated production vacancies, scraped company logos, fake hiring counts or testimonials. Local fixtures are explicitly fictional, noindex and rejected by production startup.
 
@@ -48,9 +51,10 @@ Suitable for staging deployment and integration validation after the core enviro
 
 - `npm run typecheck`: passed (Next route type generation plus strict TypeScript).
 - `npm run lint`: passed with no errors; the configuration warnings were corrected.
-- `npm test`: **119 passed**, 6 test files, including migration-backed integration, candidate preference/recovery regressions and real authentication flows.
+- `TEST_REDIS_URL=redis://127.0.0.1:6397 npm test`: **170 passed**, 9 test files, including migration-backed integration, real Redis/BullMQ ingestion lifecycle, candidate preference/recovery regressions and real authentication flows. Without `TEST_REDIS_URL`, the broker-specific case is intentionally skipped.
 - `npm run build`: optimized Next.js production build passed; public inventory/detail routes are server-rendered.
-- `npm run format:check` and `git diff --check`: checked as part of the final verification sequence.
+- `npm run format:check` and `git diff --check`: passed.
+- `npm run db:generate`: no schema changes after the forward migrations/snapshots were reconciled.
 - `npm audit --omit=dev --audit-level=high`: **0 vulnerabilities** after replacing the affected transitive esbuild version with a tested override.
 - The authoring runtime uses Node 24; CI selects the declared Node 22 deployment baseline.
 - Local browser testing was not executed: the managed environment did not expose the browser-control capability required by the Sites workflow. The committed Playwright suite is configured to run against real PostgreSQL/Redis in GitHub Actions. CI status is reported separately from these local results.
@@ -64,3 +68,15 @@ Application code was uploaded to `SteveParadox/Jobx`, `main`, in commit `bdf6967
 Resolve the GitHub runner/account restriction, then run **Platform verification** manually from Actions (workflow dispatch is enabled) to verify the latest commit. The workflow pins Ubuntu 24.04 to avoid the announced `ubuntu-latest` image migration. Until that run and the external staging checks pass, the production-readiness verdict remains unchanged.
 
 The continuation rechecked `main` against the local baseline, retried the hosted run, and observed the same account-level runner restriction before any steps started. Candidate controls are integrated through the UI, validated route handlers, transactional services, migration `0005_candidate_preferences.sql`, and persistent-worker retention/delivery checks. Duplicate send claims serialize on a delivery lock, and a precommitted first-attempt timestamp bounds crash recovery against the provider's idempotency window. No live source, merchant, email sender or deployed performance result was added or claimed.
+
+## Autonomous ingestion addendum
+
+Implemented approved source registry/revisions, all adapter types listed above, safe DNS-pinned fetching, robots/content/redirect/budget controls, per-record quarantine, explicit employer/source ownership, conservative source aliases, transactional canonical search publication, configurable absence confirmation, permitted application-link checks, source authorization expiry, durable task/outbox scheduling, database leases, jittered retries, dead-letter review, cancellation and manual replay. Admin → Sources exposes configuration, approval, tests, scheduling, metrics, queue/worker health and recovery.
+
+Principal changes are `src/integrations/sources/{contracts,http,normalize,adapters,browser,link-checks}.ts`, `src/domain/{ingestion,ingestion-tasks,source-management}.ts`, `src/worker/ingestion.ts`, the existing worker/API/jobs/search integration, `src/components/ingestion-workspace.tsx`, source/task migrations, fixtures and three ingestion test modules. `docs/JOB_INGESTION.md` contains setup, approval, adapter extension, configuration examples and replay procedures. Deployment includes the optional `worker-browser` Docker target and `SOURCE_BROWSER_ENABLED=false` default.
+
+Migration `0007_ingestion_guards.sql` deliberately disables legacy sources pending explicit approval under the new endpoint/usage policy. Jobs and provenance are retained, and employer-edited records retain employer control. Previously journaled SQL is unchanged. Unjournaled duplicate migration/snapshot artifacts were removed to prevent incorrect future schema generation.
+
+The real Redis 7.4.11/BullMQ fixture test exercised schedule → outbox → worker → migrated database → full-text search → update → confirmed closure, including duplicate queue identity and worker stop/restart with queued work. Database behavior in that test is PGlite, not an independently running PostgreSQL server. Separate integration tests cover lease replay, cancellation, quota/permission boundaries, partial results, outages and injected transaction failures. No authorized live employer endpoint was fetched, no real inventory was fabricated, and no Chromium ingestion run is claimed.
+
+Readiness remains **staging validation required**, not production ingestion certification. P1 prerequisites are an actually approved source, deployed persistent services, real PostgreSQL/multi-process recovery checks, and representative staging validation. Browser execution additionally requires a verified sandboxed browser worker; it stays disabled otherwise. Existing whole-platform legal, email/storage/scanner, payment sandbox and browser/accessibility prerequisites remain in force.

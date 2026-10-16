@@ -55,7 +55,7 @@ The command prints three fixture accounts and their deliberately public developm
 | SEO              | `/sitemap.xml`, `/sitemaps/:kind/:page.xml`, `/robots.txt`; eligible production job details only receive JobPosting                                                  |
 | Operations       | `/api/health` for process liveness, `/api/ready` for database/Redis/fresh worker heartbeat                                                                           |
 
-All privileged API operations enforce server-side authorization. Public browsing and external application destinations do not require registration. Account writes require verified email. Sources default disabled and need recorded display permission.
+All privileged API operations enforce server-side authorization. Public browsing and external application destinations do not require registration. Account writes require verified email. Sources start disabled and pending approval. The ingestion worker supports Greenhouse, Lever, Ashby, authorized JSON/XML/RSS/HTML, optional permitted Playwright pages, licensed adapters and manual uploads. See [the ingestion setup and approval guide](docs/JOB_INGESTION.md).
 
 ## Verification
 
@@ -68,7 +68,7 @@ npm run build
 npm audit --omit=dev --audit-level=high
 ```
 
-Unit/integration tests run actual PostgreSQL SQL and migrations with PGlite, including `pg_trgm`. They do not require Docker. Browser tests use real PostgreSQL/Redis and explicit demo fixtures; see [TESTING.md](docs/TESTING.md). CI provisions those services, migrates, seeds, starts the web/worker and runs desktop/mobile Chromium tests.
+Unit/integration tests run actual PostgreSQL SQL and migrations with PGlite, including `pg_trgm`. They do not require Docker. Set `TEST_REDIS_URL` to an isolated broker to include the real BullMQ ingestion lifecycle test (recorded source fixtures with PGlite). Browser tests use real PostgreSQL/Redis and explicit demo fixtures; see [TESTING.md](docs/TESTING.md). CI provisions those services, migrates, seeds, starts the web/worker and runs desktop/mobile Chromium tests.
 
 ## Documentation
 

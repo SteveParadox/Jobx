@@ -1,1 +1,0 @@
-CREATE INDEX "search_history_date_idx" ON "search_history" USING btree ("last_used_at");
