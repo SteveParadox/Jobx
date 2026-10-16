@@ -203,6 +203,13 @@ export async function processIngestionTask(id: string, options: SyncOptions = {}
       Date.now() + Math.max(sourceError.retryAfterMs ?? 0, ingestionBackoff(task.attempts)),
     );
     const settled = await db.transaction(async (tx) => {
+      // Source administration takes source -> task locks. Use the same order
+      // during settlement so a concurrent revoke/update cannot form a cycle.
+      await tx
+        .select({ id: s.sources.id })
+        .from(s.sources)
+        .where(eq(s.sources.id, task.sourceId))
+        .for('update');
       const [owned] = await tx
         .update(s.ingestionTasks)
         .set({
@@ -240,19 +247,37 @@ export async function processIngestionTask(id: string, options: SyncOptions = {}
 }
 export async function recoverIngestionTasks(now = new Date()) {
   return getDb().transaction(async (tx) => {
+    const recoverable = or(
+      and(eq(s.ingestionTasks.status, 'running'), lte(s.ingestionTasks.leaseUntil, now)),
+      and(
+        inArray(s.ingestionTasks.status, ['queued', 'retrying']),
+        lte(s.ingestionTasks.availableAt, now),
+      ),
+    );
+    // Lock source rows first, just like scheduling, retries and administration.
+    // SKIP LOCKED lets unrelated sources continue while one is being persisted.
+    const sources = await tx
+      .select({ id: s.sources.id })
+      .from(s.sources)
+      .where(
+        sql`exists (select 1 from ${s.ingestionTasks} where ${s.ingestionTasks.sourceId}=${s.sources.id} and ${recoverable})`,
+      )
+      .orderBy(s.sources.id)
+      .limit(200)
+      .for('update', { skipLocked: true });
+    if (!sources.length) return 0;
     const tasks = await tx
       .select()
       .from(s.ingestionTasks)
       .where(
-        or(
-          and(eq(s.ingestionTasks.status, 'running'), lte(s.ingestionTasks.leaseUntil, now)),
-          and(
-            inArray(s.ingestionTasks.status, ['queued', 'retrying']),
-            lte(s.ingestionTasks.availableAt, now),
+        and(
+          inArray(
+            s.ingestionTasks.sourceId,
+            sources.map((source) => source.id),
           ),
+          recoverable,
         ),
       )
-      .limit(200)
       .for('update', { skipLocked: true });
     for (const task of tasks) {
       const terminal = task.cancelRequested || task.attempts >= task.maxAttempts;
@@ -335,6 +360,23 @@ export async function recoverIngestionTasks(now = new Date()) {
 export async function controlIngestionTask(actor: Actor, id: string, action: 'cancel' | 'retry') {
   admin(actor);
   return getDb().transaction(async (tx) => {
+    // Cancellation only locks the task, so it can interrupt a source fetch.
+    // Retry also changes source state and must acquire the source first.
+    const snapshot = requireValue(
+      (await tx.select().from(s.ingestionTasks).where(eq(s.ingestionTasks.id, id)))[0],
+    );
+    const source =
+      action === 'retry'
+        ? requireValue(
+            (
+              await tx
+                .select()
+                .from(s.sources)
+                .where(eq(s.sources.id, snapshot.sourceId))
+                .for('update')
+            )[0],
+          )
+        : null;
     const task = requireValue(
       (
         await tx.select().from(s.ingestionTasks).where(eq(s.ingestionTasks.id, id)).for('update')
@@ -352,11 +394,10 @@ export async function controlIngestionTask(actor: Actor, id: string, action: 'ca
     } else {
       if (!['failed', 'cancelled'].includes(task.status))
         throw new AppError(409, 'Only finished failed/cancelled tasks may be retried');
-      const source = requireValue(
-        (await tx.select().from(s.sources).where(eq(s.sources.id, task.sourceId)).for('update'))[0],
-      );
-      assertSourceApproved(source);
-      if (task.kind !== 'test' && !source.enabled) throw new AppError(409, 'Source is disabled');
+      const retrySource = requireValue(source);
+      assertSourceApproved(retrySource);
+      if (task.kind !== 'test' && !retrySource.enabled)
+        throw new AppError(409, 'Source is disabled');
       if (task.kind === 'import' && !task.payload)
         throw new AppError(409, 'Upload payload retention expired; submit a new complete import');
       const [existing] = await tx

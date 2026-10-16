@@ -48,6 +48,7 @@ jobs:
         env:
           DEMO_MODE: 'false'
           TEST_REDIS_URL: redis://localhost:6379
+          TEST_POSTGRES_URL: postgresql://careeratlas:careeratlas@localhost:5432/careeratlas
       - run: npm run db:migrate
       - run: npm run db:seed
       - run: npm run build

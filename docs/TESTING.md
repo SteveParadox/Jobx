@@ -56,6 +56,22 @@ Do not report these external checks as passed until their execution is recorded 
 
 `tests/unit/ingestion-adapters.test.ts` covers recorded JSON/XML/RSS/HTML parsing, Ashby fields, public/mapped/private IP rejection, mixed DNS answers, guarded redirects, robots, MIME/byte/request budgets, timeouts, pagination, malformed/duplicate records, unknown claims and browser gating. `tests/integration/ingestion-pipeline.test.ts` integrates approval, source tests, canonical persistence, generated full-text search, alerts, updates, closure, permission expiry, idempotency, ownership protection, quarantine, cancellation, retries and injected transactional failure. Recovery regressions cover stale worker failures before and after source-lease replacement, lease-token checks before persistence, and cleanup of abandoned sync runs when cancellation or exhausted retries prevent replay.
 
-With `TEST_REDIS_URL` pointing to an isolated broker, `tests/integration/ingestion-queue.test.ts` runs real BullMQ scheduling/outbox delivery, worker stop/restart, canonical job updates, source identity reuse and confirmed closure into search. It uses the migrated PGlite database and a recorded source transport; this is distinct from a real multi-process PostgreSQL test. GitHub CI enables this test with its Redis service. Without the variable, the broker case is explicitly skipped.
+With `TEST_REDIS_URL` pointing to an isolated broker, `tests/integration/ingestion-queue.test.ts` runs real BullMQ scheduling/outbox delivery, worker stop/restart, canonical job updates, source identity reuse and confirmed closure into search. It uses a recorded source transport. Persistence uses migrated PGlite by default; setting `TEST_POSTGRES_URL` selects a real PostgreSQL pool for this same end-to-end lifecycle test. GitHub CI supplies both service URLs. Without the variable, the broker case is explicitly skipped.
 
 Bash: `TEST_REDIS_URL=redis://localhost:6379 npm test`. Windows CMD: `set TEST_REDIS_URL=redis://localhost:6380`, then `npm test`. Do not point this suite at a production broker/database. The test uses a unique queue and removes only that queue. Browser scraping remains disabled until a permitted source and sandboxed browser worker have passed staging checks; the managed authoring environment did not execute Chromium.
+
+## Independent PostgreSQL ingestion checks
+
+Set both service URLs to enable the real PostgreSQL/BullMQ lifecycle and PostgreSQL lock-contention cases:
+
+```bash
+TEST_POSTGRES_URL=postgresql://careeratlas:careeratlas@localhost:5432/careeratlas TEST_REDIS_URL=redis://localhost:6379 npm test
+```
+
+For Windows CMD with local Docker ports 5433/6380, set `TEST_POSTGRES_URL=postgresql://careeratlas:careeratlas@localhost:5433/careeratlas` and `TEST_REDIS_URL=redis://localhost:6380` separately, then run `npm test`. Use the actual ports reported by `docker compose ps`.
+
+The PostgreSQL test role needs `CREATEDB` and permission to install `pg_trgm` in its own test databases. The harness creates a unique `jobx_test_<uuid>` database per invocation, applies every journaled migration unchanged, uses an independent connection pool, and drops only that generated database on cleanup. It does not truncate tables in the connection URL's database. Never supply production database/broker credentials. An interrupted test process may leave a generated database; inspect its name and active connections before removing it manually.
+
+`tests/integration/ingestion-postgres.test.ts` checks that manual retry waits on the source before locking a task, recovery skips locked sources without claiming their tasks, and failure handling waits on the source before locking a sync run. The tests use independent connections, `pg_stat_activity` wait events and `FOR UPDATE NOWAIT`; PGlite is intentionally not used to certify row-lock ordering. The three contention cases are explicitly skipped without `TEST_POSTGRES_URL`. These are same-server independent-connection checks, not a multi-host load or browser test.
+
+The authoring environment did not run a standalone PostgreSQL server, so the PostgreSQL-only cases remain unverified locally. Do not infer a passing result from test discovery or CI configuration. Hosted execution must be confirmed separately; the account-level Actions runner restriction remains a blocker until resolved.

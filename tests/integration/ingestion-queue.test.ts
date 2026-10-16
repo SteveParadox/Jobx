@@ -14,12 +14,12 @@ import { dispatchCommands, tickIngestion } from '../../src/worker/ingestion';
 import type { Transport } from '../../src/integrations/sources/http';
 import { actor, description, testDatabase } from '../helpers';
 
-// Opt-in real broker test. PostgreSQL behavior uses the migration-backed PGlite engine;
-// this is not a claim of multi-host PostgreSQL contention or a live source license.
+// Opt-in real broker test. TEST_POSTGRES_URL selects independent PostgreSQL
+// connections; otherwise persistence uses migrated PGlite. Neither grants a live source license.
 const redisUrl = process.env.TEST_REDIS_URL;
 let ctx: Awaited<ReturnType<typeof testDatabase>>;
 beforeAll(async () => {
-  if (redisUrl) ctx = await testDatabase();
+  if (redisUrl) ctx = await testDatabase(process.env.TEST_POSTGRES_URL);
 });
 afterAll(async () => {
   if (ctx) await ctx.client.close();

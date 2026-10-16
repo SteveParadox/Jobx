@@ -522,6 +522,12 @@ export async function syncSource(
         ? `${error.code}: ${error.message}`
         : 'Source processing or persistence failed';
     await db.transaction(async (tx) => {
+      // Keep the same source -> run order as persistence and task recovery.
+      await tx
+        .select({ id: s.sources.id })
+        .from(s.sources)
+        .where(eq(s.sources.id, sourceId))
+        .for('update');
       await tx
         .update(s.syncRuns)
         .set({

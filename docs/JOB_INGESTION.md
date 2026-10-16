@@ -115,7 +115,7 @@ The browser adapter is implemented and gated, but actual Chromium ingestion was 
 
 ## Durable execution and recovery
 
-The minute scheduler writes one active `ingestion_tasks` row per source and an outbox command in the same PostgreSQL transaction. A partial unique index prevents duplicate active tasks. Dispatch uses stable BullMQ job IDs; acknowledgement follows successful queue insertion. PostgreSQL task/source leases, employer/job locks and source-ID constraints protect replay and concurrent imports.
+The minute scheduler writes one active `ingestion_tasks` row per source and an outbox command in the same PostgreSQL transaction. A partial unique index prevents duplicate active tasks. Dispatch uses stable BullMQ job IDs; acknowledgement follows successful queue insertion. PostgreSQL task/source leases, employer/job locks and source-ID constraints protect replay and concurrent imports. Operations that lock both a source and its task/run acquire the source first; cancellation locks only its task. Recovery uses `SKIP LOCKED` on source rows before claiming tasks, allowing unrelated sources to proceed without reversing the administration lock order.
 
 Transient failures enter durable retry state with exponential backoff and jitter; `Retry-After` takes precedence. Five attempts are the initial budget. Permanent errors or exhausted retries enter the database dead-letter view and stop automatic scheduling for that source. Inspect/fix the failure, then explicitly retry or test the source. Manual retry gets a fresh queue identity, including tasks cancelled before their first claim.
 
@@ -158,3 +158,7 @@ The recorded-fixture suite applies actual PostgreSQL migrations through PGlite. 
 Admin → Sources shows permissions, active mapped jobs, recent run counts/durations, next sync, queue/worker health, task cancellation/retry and quarantine reasons. Metrics are explicitly the most recent 100 runs/tasks, not fabricated lifetime totals. Diagnose from task ID → run ID → source revision → error code. For failed fetches, check approval expiry, exact hostname, DNS, robots, response type, parser paths/selectors, provider limits and credentials. Never resolve a failure by bypassing a source restriction.
 
 Before public production ingestion, provision the persistent worker/database/broker, run multi-process PostgreSQL and crash/restore checks, validate one genuinely approved source end to end, verify public URLs/JobPosting where eligible, and measure representative load. Browser sources additionally need the sandboxed browser-worker check. The authoring report distinguishes the checks actually executed from these external prerequisites.
+
+## PostgreSQL acceptance gate
+
+Supply both `TEST_POSTGRES_URL` and `TEST_REDIS_URL` to `npm test` to exercise the recorded-source lifecycle through BullMQ, an independent PostgreSQL pool, canonical jobs, generated search vectors, updates and confirmed closure. The PostgreSQL-only contention cases additionally check retry, recovery and failed-run lock ordering. See [TESTING.md](TESTING.md) for isolated database creation/cleanup and the required test role privileges. Without the PostgreSQL variable, the lifecycle uses PGlite and the three contention cases are explicitly skipped. This distinction is a release gate, not evidence of a passing production deployment.
