@@ -48,9 +48,17 @@ Suitable for staging deployment and integration validation after the core enviro
 
 - `npm run typecheck`: passed (Next route type generation plus strict TypeScript).
 - `npm run lint`: passed with no errors; the configuration warnings were corrected.
-- `npm test`: **92 passed**, 5 test files, including migration-backed integration and real authentication flows.
+- `npm test`: **95 passed**, 5 test files, including migration-backed integration and real authentication flows.
 - `npm run build`: optimized Next.js production build passed; public inventory/detail routes are server-rendered.
 - `npm run format:check` and `git diff --check`: checked as part of the final verification sequence.
 - `npm audit --omit=dev --audit-level=high`: **0 vulnerabilities** after replacing the affected transitive esbuild version with a tested override.
 - The authoring runtime uses Node 24; CI selects the declared Node 22 deployment baseline.
 - Local browser testing was not executed: the managed environment did not expose the browser-control capability required by the Sites workflow. The committed Playwright suite is configured to run against real PostgreSQL/Redis in GitHub Actions. CI status is reported separately from these local results.
+
+## GitHub delivery and hosted CI
+
+Application code was uploaded to `SteveParadox/Jobx`, `main`, in commit `bdf696780df7cea9e6a70737f3cbc7565900438b`. The local Git tree matched the remote tree exactly after upload.
+
+[GitHub Actions run 38863304036](https://github.com/SteveParadox/Jobx/actions/runs/38863304036) failed **before a runner started**. The hosted runner was blocked by an account-level restriction. No CI steps or browser tests executed, and there were no job logs. This is an external account blocker, not a failed application test result.
+
+Resolve the GitHub runner/account restriction, then run **Platform verification** manually from Actions (workflow dispatch is enabled) to verify the latest commit. The workflow pins Ubuntu 24.04 to avoid the announced `ubuntu-latest` image migration. Until that run and the external staging checks pass, the production-readiness verdict remains unchanged.

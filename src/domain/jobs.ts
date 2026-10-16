@@ -129,6 +129,7 @@ export async function saveJob(
       .update(s.jobs)
       .set({
         ...values,
+        slug: old.slug,
         status: old.status === 'active' ? 'pending' : old.status,
         version: old.version + 1,
         updatedAt: new Date(),
@@ -187,6 +188,8 @@ export async function transitionJob(
         throw new AppError(409, 'Only reviewed pending jobs can be published');
       if (company.verificationStatus !== 'verified' || company.disabled)
         throw new AppError(409, 'Verify the employer before publication');
+      if (job.originalPostedAt && job.originalPostedAt > new Date())
+        throw new AppError(409, 'The original posting date cannot be in the future');
       if (job.expiresAt && job.expiresAt <= new Date())
         throw new AppError(409, 'Update the expired deadline before publishing');
       jobSchema.parse({

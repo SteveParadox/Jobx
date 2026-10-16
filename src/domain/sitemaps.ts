@@ -24,6 +24,7 @@ function jobEligibility() {
   return and(
     availability(),
     isNotNull(jobs.originalPostedAt),
+    sql`${jobs.originalPostedAt}<=now()`,
     sql`(${jobs.workplace}='remote' and cardinality(${jobs.remoteCountries})>0 or ${jobs.workplace}<>'remote' and ${jobs.country} is not null)`,
   );
 }

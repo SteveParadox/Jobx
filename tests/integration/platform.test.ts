@@ -189,6 +189,7 @@ describe('search and lifecycle', () => {
     await publish();
     expect((await searchJobs({ country: 'GB' })).total).toBe(0);
     expect((await searchJobs({ country: 'NG', workplace: 'onsite' })).total).toBe(1);
+    expect((await searchJobs({ country: 'ng', city: 'lagos' })).total).toBe(1);
   });
   it('requires comparable currency and period for salary sorting', async () => {
     await publish({ salaryMin: 50000, salaryMax: 70000, currency: 'USD', salaryPeriod: 'YEAR' });
@@ -652,4 +653,33 @@ it('pauses sole-source vacancies when the authorization source is disabled', asy
   await setSourceEnabled(root.id, src.id, false);
   expect((await ctx.db.select().from(s.jobs))[0].status).toBe('paused');
   expect((await searchJobs({})).total).toBe(0);
+});
+
+it('keeps a permanent readable URL when a title is corrected', async () => {
+  const j = await draft();
+  const updated = await saveJob(
+    owner,
+    employerId,
+    { ...jobInput, title: 'Senior Backend Engineer' },
+    j.id,
+    j.version,
+  );
+  expect(updated.slug).toBe(j.slug);
+});
+it('rejects publication with a future original posting date', async () => {
+  const j = await draft({ originalPostedAt: new Date(Date.now() + 86400000).toISOString() });
+  await transitionJob(owner, j.id, 'submit');
+  await expect(transitionJob(root, j.id, 'publish')).rejects.toMatchObject({ status: 409 });
+});
+
+it('exposes required source attribution without private permission evidence and hides closed imported content', async () => {
+  const { jobProvenance } = await import('../../src/domain/search');
+  const src = await source();
+  await syncSource(src.id, fetchRows(greenhouseRows([1])));
+  const [j] = await ctx.db.select().from(s.jobs);
+  const provenance = await jobProvenance(j.id);
+  expect(provenance[0].attribution).toBe('Fixture ATS');
+  expect(provenance[0]).not.toHaveProperty('permissionEvidence');
+  await ctx.db.update(s.jobs).set({ status: 'closed' }).where(eq(s.jobs.id, j.id));
+  expect(await getPublicJob(j.id)).toBeUndefined();
 });

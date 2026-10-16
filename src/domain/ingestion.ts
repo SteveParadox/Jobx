@@ -3,7 +3,7 @@ import * as s from '@/db/schema';
 import { fetchFeed, type FeedJob } from '@/integrations/feeds';
 import { log } from '@/lib/log';
 import { plainText, publicUrl, sanitizeDescription, slugify } from '@/lib/security';
-import { and, desc, eq, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, sql, inArray } from 'drizzle-orm';
 import { fingerprint, queueIndex } from './jobs';
 export async function syncSource(
   sourceId: string,
@@ -124,7 +124,7 @@ export async function syncSource(
                   }
                 : {}),
               title: d.title,
-              slug: slugify(d.title),
+              slug: job.slug,
               descriptionHtml: html,
               descriptionText: text,
               locationLabel: d.locationLabel,
@@ -272,7 +272,9 @@ export async function setSourceEnabled(actorId: string, id: string, enabled: boo
           const [job] = await tx
             .update(s.jobs)
             .set({ status: 'paused', version: sql`${s.jobs.version}+1`, updatedAt: new Date() })
-            .where(and(eq(s.jobs.id, jobId), eq(s.jobs.status, 'active')))
+            .where(
+              and(eq(s.jobs.id, jobId), inArray(s.jobs.status, ['active', 'closed', 'expired'])),
+            )
             .returning();
           if (job) {
             await queueIndex(tx, job, 'URL_DELETED');

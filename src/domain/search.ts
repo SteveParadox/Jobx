@@ -87,14 +87,23 @@ export function searchConditions(f: SearchFilters, now = new Date()) {
     employmentType: jobs.employmentType,
     education: jobs.education,
   }) as [keyof SearchFilters, typeof jobs.country][])
-    if (f[key]) conditions.push(eq(column, String(f[key])));
-  if (f.industry) conditions.push(eq(employers.industry, f.industry));
+    if (f[key]) {
+      const value = String(f[key]).trim();
+      conditions.push(
+        key === 'country'
+          ? eq(column, value.toUpperCase())
+          : ['city', 'region', 'category', 'seniority', 'education'].includes(key)
+            ? sql`lower(${column})=lower(${value})`
+            : eq(column, value),
+      );
+    }
+  if (f.industry) conditions.push(sql`lower(${employers.industry})=lower(${f.industry})`);
   if (f.company) conditions.push(eq(jobs.employerId, f.company));
   if (f.eligibleCountry)
     conditions.push(
       and(
         eq(jobs.workplace, 'remote'),
-        sql`${jobs.remoteCountries} @> ARRAY[${f.eligibleCountry}]::text[]`,
+        sql`${jobs.remoteCountries} @> ARRAY[${f.eligibleCountry.toUpperCase()}]::text[]`,
       ),
     );
   if (f.visa) conditions.push(eq(jobs.visaSponsorship, f.visa === 'true'));
@@ -148,6 +157,7 @@ export async function getPublicJob(id: string) {
         and(
           eq(jobs.id, id),
           inArray(jobs.status, ['active', 'closed', 'expired']),
+          sql`(${jobs.status}='active' or not exists(select 1 from source_job_mappings where job_id=${jobs.id}))`,
           eq(employers.disabled, false),
           eq(employers.verificationStatus, 'verified'),
           ...(isProduction || !env.DEMO_MODE
@@ -176,4 +186,18 @@ export async function inventory() {
     .groupBy(jobs.category)
     .orderBy(desc(sql`count(*)`))
     .limit(8);
+}
+
+export async function jobProvenance(jobId: string) {
+  const { mappings, sources } = await import('@/db/schema');
+  return getDb()
+    .select({
+      attribution: sources.attribution,
+      provider: sources.provider,
+      sourceUrl: mappings.sourceUrl,
+      enabled: sources.enabled,
+    })
+    .from(mappings)
+    .innerJoin(sources, eq(mappings.sourceId, sources.id))
+    .where(eq(mappings.jobId, jobId));
 }

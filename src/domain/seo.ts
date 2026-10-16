@@ -11,6 +11,7 @@ export function eligible(job: PublicJob) {
     !job.isDemo &&
     active(job) &&
     Boolean(job.originalPostedAt) &&
+    new Date(job.originalPostedAt!) <= new Date() &&
     job.descriptionText.length >= 80 &&
     Boolean(job.companyName) &&
     Boolean(job.workplace === 'remote' ? job.remoteCountries.length : job.country)

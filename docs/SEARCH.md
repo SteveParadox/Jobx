@@ -6,7 +6,7 @@ A generated weighted English tsvector indexes titles (A), explicit skills (B) an
 
 Relevance combines text rank, title similarity, recency and recent verification. Recency and salary sorting are separate explicit options. Salary sorting/filtering requires both the same currency and salary period; no exchange-rate assumption is made. Null salary/sponsorship values never become invented facts. Featured placements receive a label and do not secretly change ordering.
 
-Parameters live in the URL, survive pagination and are schema validated. The page size is 20, query length is 160 and page numbers are bounded to 1,000. Query/lock timeouts and distributed request limits reduce abusive cost. Filters with empty values are removed before parsing. The mobile filter dialog uses Radix focus management.
+City/region/category/industry comparisons are case insensitive, and country codes normalize to uppercase. Functional location/industry indexes support these comparisons. Parameters live in the URL, survive pagination and are schema validated. The page size is 20, query length is 160 and page numbers are bounded to 1,000. Query/lock timeouts and distributed request limits reduce abusive cost. Filters with empty values are removed before parsing. The mobile filter dialog uses Radix focus management.
 
 The initial adapter is PostgreSQL. An external search engine can replace the `searchJobs`/suggestions boundary while preserving visibility rules, authorization and query semantics. This release does not claim multilingual morphology or general semantic/AI search.
 

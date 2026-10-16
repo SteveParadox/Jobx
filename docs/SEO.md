@@ -2,7 +2,7 @@
 
 ## Indexability policy
 
-Public descriptions and search results are rendered as server HTML. Jobs use `/job/:uuid/:current-slug`; obsolete slugs permanently redirect to the current canonical path. Search/filter/sort pages and account/admin pages use explicit noindex metadata. Staging, test and development also send `X-Robots-Tag: noindex, nofollow` across all routes. Robots exclusions complement these directives and are not the sole protection.
+Public descriptions and search results are rendered as server HTML. Jobs use `/job/:uuid/:current-slug`; obsolete slugs permanently redirect to the current canonical path. A title correction preserves the stored slug and URL; future original posting dates cannot be published or emitted in schema/sitemaps. Search/filter/sort pages and account/admin pages use explicit noindex metadata. Staging, test and development also send `X-Robots-Tag: noindex, nofollow` across all routes. Robots exclusions complement these directives and are not the sole protection.
 
 Curated `/jobs/...` pages are administrator-authored settings, not generated permutations. They require editorial approval, meaningful distinct guidance and at least three matching active records. They return 404 and leave the sitemap if the threshold is not met. No hreflang is emitted because this release does not contain genuine translated alternatives.
 
@@ -10,7 +10,7 @@ Curated `/jobs/...` pages are administrator-authored settings, not generated per
 
 Only an active, non-demo production detail record with a real original date, substantive description, employer identity and validated location/eligibility receives JobPosting. Salary is emitted only from disclosed values with currency/period. Fully remote jobs use `TELECOMMUTE` plus explicit applicant countries. Hybrid jobs retain physical location semantics. `directApply` is omitted rather than claimed for an unproven flow. All source descriptions are sanitized, and JSON-LD escapes script terminators.
 
-Expired jobs leave active search immediately on deadline checks, even if the minute worker has not changed their stored lifecycle yet. Archived closed/expired detail pages are useful, clearly closed, noindex and lack active JobPosting. Paused/draft records do not have public detail pages. Expiration/publication/edits/verification changes create deduplicated indexing notifications.
+Expired jobs leave active search immediately on deadline checks, even if the minute worker has not changed their stored lifecycle yet. Employer-submitted archived closed/expired detail pages are clearly closed, noindex and lack active JobPosting. Imported closed/expired records return 404 by default because archival redistribution rights are not assumed. Paused/draft records do not have public detail pages. Expiration/publication/edits/verification changes create deduplicated indexing notifications.
 
 ## Sitemaps
 

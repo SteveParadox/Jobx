@@ -30,7 +30,7 @@ An invalid record fails the entire snapshot and records an error; it is not sile
 
 Deduplication is conservative. Provider IDs identify the same source record. Cross-source aliases require the same employer, application destination and normalized fingerprint. Different requisitions within one source stay separate even when a generic careers URL is shared. Fuzzy auto-merging is deliberately avoided to protect distinct openings.
 
-Disabling a source pauses its active jobs when no enabled alias remains. Restoring the source does not bypass review. Administrators can return paused records to review; source and forensic history remain retained.
+Source attribution links appear on public job details. Imported closed/expired records are not publicly archived by default. Disabling a source pauses its publicly accessible jobs when no enabled alias remains. Restoring the source does not bypass review. Administrators can return paused records to review; source and forensic history remain retained.
 
 ## Import shape
 

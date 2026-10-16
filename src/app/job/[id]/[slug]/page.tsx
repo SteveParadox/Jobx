@@ -1,7 +1,7 @@
 import { ExternalApply, NativeApply, ReportJob, SaveJob } from '@/components/actions';
 import { JobCard, salary } from '@/components/job-card';
 import { Notice } from '@/components/ui';
-import { getPublicJob, searchJobs } from '@/domain/search';
+import { getPublicJob, jobProvenance, searchJobs } from '@/domain/search';
 import { active, breadcrumb, eligible, jobPath, jobSchema, metadata } from '@/domain/seo';
 import { env } from '@/lib/config';
 import { jsonLd } from '@/lib/security';
@@ -32,6 +32,7 @@ export default async function JobDetail({ params }: Props) {
   if (slug !== job.slug) permanentRedirect(jobPath(job));
   const open = active(job);
   const schema = jobSchema(job);
+  const provenance = await jobProvenance(job.id);
   const similar = job.category ? await searchJobs({ category: job.category }) : { jobs: [] };
   return (
     <div className="container">
@@ -156,6 +157,28 @@ export default async function JobDetail({ params }: Props) {
             <div>
               <dt>Last verified</dt>
               <dd>{job.lastVerifiedAt?.toLocaleDateString('en-GB') ?? 'Awaiting verification'}</dd>
+            </div>
+            <div>
+              <dt>Listing source</dt>
+              <dd>
+                {job.isDemo
+                  ? 'Development fixture'
+                  : provenance.length
+                    ? provenance
+                        .filter((v) => v.enabled)
+                        .map((v, i) => (
+                          <div key={i}>
+                            <a href={v.sourceUrl} target="_blank" rel="noopener noreferrer">
+                              {v.attribution} ↗
+                            </a>
+                          </div>
+                        ))
+                    : 'Employer-submitted listing'}
+                {!job.isDemo &&
+                  provenance.length > 0 &&
+                  !provenance.some((v) => v.enabled) &&
+                  'Original source no longer enabled'}
+              </dd>
             </div>
             <div>
               <dt>Application route</dt>
