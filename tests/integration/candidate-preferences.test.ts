@@ -446,11 +446,42 @@ describe('durable private-object deletion', () => {
   });
 });
 
-it('does not silently accept a résumé upload for an erased account', async () => {
-  // This is the DB precondition for the post-S3 user-row lock in uploadResume.
-  // Actual S3 compensation is covered by the staging object-store integration suite.
-  await ctx.db.update(s.user).set({ disabled: true }).where(eq(s.user.id, candidate.id));
-  const [user] = await ctx.db.select({ disabled: s.user.disabled })
-    .from(s.user).where(eq(s.user.id, candidate.id));
-  expect(user.disabled).toBe(true);
+it('rejects a finished PDF upload after erasure and queues deletion of the orphan object', async () => {
+  const { env } = await import('../../src/lib/config');
+  const { S3Client } = await import('@aws-sdk/client-s3');
+  const { uploadResume } = await import('../../src/integrations/storage');
+  const original = {
+    bucket: env.S3_BUCKET,
+    key: env.S3_ACCESS_KEY_ID,
+    secret: env.S3_SECRET_ACCESS_KEY,
+  };
+  Object.assign(env, {
+    S3_BUCKET: 'test-private-documents',
+    S3_ACCESS_KEY_ID: 'fixture-key',
+    S3_SECRET_ACCESS_KEY: 'fixture-secret',
+  });
+  const send = vi.spyOn(S3Client.prototype, 'send').mockResolvedValue({} as never);
+  try {
+    await ctx.db.update(s.user).set({ disabled: true }).where(eq(s.user.id, candidate.id));
+    await expect(uploadResume(
+      candidate,
+      Buffer.from('%PDF-1.7 fixture document'),
+      'cv.pdf',
+      'application/pdf',
+    )).rejects.toMatchObject({ status: 409 });
+    expect(await ctx.db.select().from(s.resumes)).toHaveLength(0);
+    const cleanup = await ctx.db.select().from(s.outbox);
+    expect(cleanup.some((row) =>
+      row.topic === 'storage-delete' &&
+      typeof (row.payload as { objectKey?: string })?.objectKey === 'string',
+    )).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+  } finally {
+    send.mockRestore();
+    Object.assign(env, {
+      S3_BUCKET: original.bucket,
+      S3_ACCESS_KEY_ID: original.key,
+      S3_SECRET_ACCESS_KEY: original.secret,
+    });
+  }
 });

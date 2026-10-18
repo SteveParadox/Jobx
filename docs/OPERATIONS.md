@@ -86,3 +86,7 @@ fails, the upload attempts compensating S3 deletion and queues fallback cleanup 
 S3 is unavailable. A simultaneous loss of both PostgreSQL and S3 can still create
 an untracked object: enable storage inventory reconciliation, limited object lifetime for
 unreferenced uploads, and operational alerts as an independent safety net.
+
+The dispatcher reserves separate per-tick budgets for ingestion commands (80) and privacy
+cleanup (20), preventing either backlog from starving the other. Storage failures can still
+create a queue of outstanding erasure requests; alert on increasing age or count.
