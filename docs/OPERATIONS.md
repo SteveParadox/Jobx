@@ -75,3 +75,14 @@ the same S3 object repeatedly is idempotent. Monitor the count and oldest age of
 unacknowledged `storage-delete` rows and alert operators on a growing backlog;
 hourly retries are not a replacement for S3 credential and availability monitoring.
 A crashed worker between S3 deletion and DB acknowledgment safely repeats deletion.
+
+### Upload/account-erasure race
+
+Resume upload verifies the current account under a row lock *after* storing the private PDF,
+then inserts its database metadata while holding the same lock used for account deletion.
+If the account was erased while S3 accepted the file, the database transaction queues
+a durable orphan-object deletion instead of recreating a résumé. If persistence itself
+fails, the upload attempts compensating S3 deletion and queues fallback cleanup if
+S3 is unavailable. A simultaneous loss of both PostgreSQL and S3 can still create
+an untracked object: enable storage inventory reconciliation, limited object lifetime for
+unreferenced uploads, and operational alerts as an independent safety net.

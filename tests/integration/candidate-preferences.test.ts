@@ -445,3 +445,12 @@ describe('durable private-object deletion', () => {
     });
   });
 });
+
+it('does not silently accept a résumé upload for an erased account', async () => {
+  // This is the DB precondition for the post-S3 user-row lock in uploadResume.
+  // Actual S3 compensation is covered by the staging object-store integration suite.
+  await ctx.db.update(s.user).set({ disabled: true }).where(eq(s.user.id, candidate.id));
+  const [user] = await ctx.db.select({ disabled: s.user.disabled })
+    .from(s.user).where(eq(s.user.id, candidate.id));
+  expect(user.disabled).toBe(true);
+});

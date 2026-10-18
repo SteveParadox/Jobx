@@ -5,6 +5,7 @@ import type { Tx } from '@/domain/jobs';
 import { env } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
 import { digest } from '@/lib/security';
+import { log } from '@/lib/log';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -43,23 +44,61 @@ export async function uploadResume(actor: Actor, bytes: Buffer, filename: string
       ContentDisposition: 'attachment',
     }),
   );
+  let cleanupQueued = false;
   try {
-    return (
-      await getDb()
-        .insert(s.resumes)
-        .values({
-          userId: actor.id,
-          objectKey,
-          filename: filename.replace(/[^a-zA-Z0-9 ._-]/g, '').slice(0, 100) || 'resume.pdf',
-          mime,
-          bytes: bytes.length,
-          sha256: digest(bytes),
-          status: 'quarantined',
-        })
-        .returning({ id: s.resumes.id, status: s.resumes.status })
-    )[0];
+    const created = await getDb().transaction(async (tx) => {
+      // Serialize the final upload decision with account erasure. Uploads
+      // finishing after account deletion must not leave a new résumé row.
+      const [user] = await tx
+        .select({ disabled: s.user.disabled })
+        .from(s.user)
+        .where(eq(s.user.id, actor.id))
+        .for('update');
+      if (!user || user.disabled) {
+        await tx.insert(s.outbox).values({
+          topic: 'storage-delete',
+          payload: { objectKey },
+          dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
+        }).onConflictDoNothing();
+        return null;
+      }
+      return (
+        await tx
+          .insert(s.resumes)
+          .values({
+            userId: actor.id,
+            objectKey,
+            filename: filename.replace(/[^a-zA-Z0-9 ._-]/g, '').slice(0, 100) || 'resume.pdf',
+            mime,
+            bytes: bytes.length,
+            sha256: digest(bytes),
+            status: 'quarantined',
+          })
+          .returning({ id: s.resumes.id, status: s.resumes.status })
+      )[0];
+    });
+    if (!created) {
+      cleanupQueued = true;
+      throw new AppError(409, 'The account is no longer active; the uploaded document is queued for deletion');
+    }
+    return created;
   } catch (error) {
-    await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: objectKey }));
+    if (!cleanupQueued) {
+      try {
+        await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: objectKey }));
+      } catch {
+        // Attempt a durable fallback if immediate compensation is unavailable.
+        try {
+          await getDb().insert(s.outbox).values({
+            topic: 'storage-delete',
+            payload: { objectKey },
+            dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
+          }).onConflictDoNothing();
+        } catch {
+          log('resume_orphan_cleanup_unavailable', { objectKeyDigest: digest(objectKey) });
+        }
+      }
+    }
     throw error;
   }
 }
