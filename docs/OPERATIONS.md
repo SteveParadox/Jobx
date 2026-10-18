@@ -47,3 +47,18 @@ Admin → Sources shows the most recent 100 source runs/tasks and quarantine rec
 A lease-expired worker is recovered after ten minutes. A stale acknowledged command for an unclaimed task is reissued after ten minutes; pending commands remain durable during broker outages. Cancelling a task stops that occurrence. Disable the source to stop recurrence. Changed/revoked/expired permissions withdraw source-owned records and indexing membership; they do not erase forensic history or overwrite employer-managed copies.
 
 Configure monitoring for `dead_letter`, repeated source failures, overdue `next_sync_at`, expired leases, nonempty undispatched outbox, quarantine spikes and stale heartbeat. Raw payload retention needs the persistent minute worker. Source-specific confirmation counts/gaps are documented in JOB_INGESTION; never reset missing counters because a fetch failed.
+
+## Résumé/object storage deletion recovery
+
+Individual résumé deletion and candidate account erasure now enqueue `storage-delete` outbox
+commands in the same PostgreSQL transaction as deleting résumé metadata. This prevents
+a database rollback from leaving missing objects while records still reference them.
+The persistent worker dispatches these commands to BullMQ and deletes the private S3
+objects idempotently. Cleanup is asynchronous: confirm outstanding outbox deliveries and
+failed BullMQ `storage-delete` jobs after any S3 outage. The failed-job queue retains
+errors only within its configured retention window; investigate and safely replay
+failures before expiration. Treat long-outstanding deletions as privacy incidents.
+Do not clear the outbox or Redis while private-object cleanup is outstanding.
+
+The successful account-delete response means account access and personal database records are
+removed; physical private-object deletion may still be queued. Monitor until the latter completes.

@@ -53,3 +53,14 @@ Run migrations `0006_yellow_kylun.sql` and `0007_ingestion_guards.sql` before up
 Use the ordinary `worker` image for HTTP/ATS feeds. For an explicitly permitted JavaScript source, build `docker build --target worker-browser -t careeratlas-worker-browser .`, supply `SOURCE_BROWSER_ENABLED=true` only to the worker, and verify non-root Chromium sandbox support on the host. The web never needs browser execution. No source/merchant secret belongs in a build argument.
 
 See [JOB_INGESTION](JOB_INGESTION.md) for exact configuration, source tests, scheduling, dead-letter recovery, link revalidation and the real-broker fixture test. Local broker integration was exercised separately from the still-required deployed PostgreSQL/load/browser checks.
+
+## Trusted ingress release prerequisite
+
+Set `APP_ENV=production` on production, including Vercel production projects.
+Production Vercel configuration is checked against `VERCEL_ENV`, including a guard against
+preview deployments being marked production. Self-hosted production must explicitly configure
+`TRUSTED_PROXY_IP_HEADER=x-real-ip` or `cf-connecting-ip` **and** arrange for a gateway
+to overwrite the selected header while blocking direct access to the app origin.
+The setting is not safe on an internet-reachable backend without that gateway. Redis is
+required for distributed authentication rate limits. No proxy-header configuration is
+necessary for local development where untrusted clients share a conservative fallback bucket.

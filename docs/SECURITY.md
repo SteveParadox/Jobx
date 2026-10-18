@@ -43,3 +43,19 @@ Do not log password/reset tokens, session cookies, résumé contents, payment se
 ## Boundaries requiring verification
 
 Live antivirus availability, provider sandbox behavior, multi-process database contention, assistive-technology testing, full penetration testing and production Core Web Vitals require the deployment environment. Passing the repository test suite does not replace these checks.
+
+## Trusted ingress and distributed auth limiting
+
+Application and Better Auth counters use Redis-backed atomic increments in non-test runtime environments.
+Proxy IP headers must be set/overwritten by the trusted ingress and the origin must not be reachable
+directly while those headers are accepted. On Vercel the application reads `x-vercel-forwarded-for`
+only when `VERCEL=1`. In self-hosted production explicitly set
+`TRUSTED_PROXY_IP_HEADER=x-real-ip` or `cf-connecting-ip` after configuring a trusted proxy
+to sanitize/replace that header. The platform refuses to start in self-hosted production without
+this configuration. If the trusted ingress is not configured, request limiters use a single
+fail-closed `unverified` bucket rather than trusting arbitrary `x-forwarded-for` values.
+Never expose the backend directly and simply set the header variable.
+
+In production, Redis unavailability fails closed for rate-limited requests.
+The test environment intentionally uses local memory counters to keep authentication fixtures
+isolated. Authentication and API limits are independent defense layers.
