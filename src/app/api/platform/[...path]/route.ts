@@ -42,7 +42,7 @@ import { removeResume, queueResumeCleanup, resumeAccess } from '@/integrations/s
 import { admin, currentActor, employerAccess, requireActor } from '@/lib/auth';
 import { env } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
-import { body, endpoint, rateLimit, sameOrigin } from '@/lib/http';
+import { body, clientAddress, endpoint, rateLimit, sameOrigin } from '@/lib/http';
 import { queueHealth } from '@/lib/queue';
 import { digest, sanitizeDescription } from '@/lib/security';
 import { and, desc, eq } from 'drizzle-orm';
@@ -74,7 +74,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
             .default({}),
         }),
       );
-      await rateLimit('analytics:' + (req.headers.get('x-forwarded-for') ?? 'unknown'), 60, 60);
+      await rateLimit('analytics:' + clientAddress(req), 60, 60);
       await db
         .insert(s.analytics)
         .values({ event: data.event, jobId: data.jobId, properties: data.properties });
@@ -83,20 +83,17 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method !== 'GET') {
       sameOrigin(req);
       await rateLimit(
-        'request:' +
-          (req.headers.get('x-vercel-forwarded-for') ??
-            req.headers.get('x-forwarded-for') ??
-            'unknown'),
+        'request:' + clientAddress(req),
         60,
         60,
       );
     }
     if (method === 'GET' && path === 'jobs') {
-      await rateLimit('search:' + (req.headers.get('x-forwarded-for') ?? 'unknown'), 120, 60);
+      await rateLimit('search:' + clientAddress(req), 120, 60);
       return searchJobs(Object.fromEntries(new URL(req.url).searchParams));
     }
     if (method === 'GET' && path === 'suggestions') {
-      await rateLimit('suggestions:' + (req.headers.get('x-forwarded-for') ?? 'unknown'), 120, 60);
+      await rateLimit('suggestions:' + clientAddress(req), 120, 60);
       return suggestions(new URL(req.url).searchParams.get('q') ?? '');
     }
     if (method === 'GET' && path === 'plans')
@@ -147,6 +144,21 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method === 'GET' && path === 'me')
       return { id: actor.id, name: actor.name, email: actor.email, role: actor.role };
     if (method === 'GET' && path === 'dashboard') return candidateDashboard(actor);
+    if (method === 'GET' && p[0] === 'saved-jobs' && p.length === 2) {
+      const [saved] = await db.select({ jobId: s.savedJobs.jobId })
+        .from(s.savedJobs)
+        .where(and(eq(s.savedJobs.userId, actor.id), eq(s.savedJobs.jobId, uuid(p[1]))))
+        .limit(1);
+      return { saved: Boolean(saved) };
+    }
+    if (method === 'GET' && path === 'resumes/eligible') {
+      return db.select({ id: s.resumes.id, filename: s.resumes.filename })
+        .from(s.resumes)
+        .where(and(eq(s.resumes.userId, actor.id), eq(s.resumes.status, 'clean')))
+        .orderBy(desc(s.resumes.createdAt))
+        .limit(50);
+    }
+
     if (method === 'PUT' && path === 'preferences')
       return updateCandidatePreferences(actor, await body(req, z.unknown()));
     if (method === 'DELETE' && p[0] === 'search-history' && p.length <= 2)

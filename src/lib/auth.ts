@@ -8,6 +8,7 @@ import { assertRuntime, brand, env, isProduction } from './config';
 import { sendEmail } from './email';
 import { AppError } from './errors';
 import { digest, escapeHtml } from './security';
+import { getRedis } from './http';
 let instance: ReturnType<typeof createAuth> | undefined;
 function createAuth() {
   assertRuntime();
@@ -58,8 +59,33 @@ function createAuth() {
         : {},
     user: { deleteUser: { enabled: false } },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
-    advanced: { useSecureCookies: isProduction },
-    rateLimit: { enabled: true, storage: 'memory', window: 60, max: 60 },
+    advanced: {
+      useSecureCookies: isProduction,
+      ipAddress: { ipAddressHeaders: [
+        process.env.VERCEL === '1' ? 'x-vercel-forwarded-for' :
+          (process.env.TRUSTED_PROXY_IP_HEADER || 'x-real-ip'),
+      ] },
+    },
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 60,
+      ...(env.APP_ENV === 'test' || !env.REDIS_URL
+        ? { storage: 'memory' as const }
+        : {
+            customStorage: {
+              consume: async (key: string, rule: { window: number; max: number }) => {
+                const redis = getRedis();
+                const bucket = 'auth-rate:' + digest(key);
+                const count = Number(await redis.eval(
+                  "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n",
+                  1, bucket, rule.window,
+                ));
+                return { allowed: count <= rule.max, retryAfter: count > rule.max ? rule.window : null };
+              },
+            },
+          }),
+    },
   });
 }
 export function getAuth() {

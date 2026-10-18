@@ -1,7 +1,7 @@
 'use client';
 import { ArrowUpRight, Bell, Bookmark, Flag } from 'lucide-react';
 import Link from 'next/link';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Field, Notice } from './ui';
 export async function api(path: string, method = 'GET', data?: unknown) {
   const response = await fetch('/api/platform/' + path, {
@@ -25,13 +25,23 @@ export async function api(path: string, method = 'GET', data?: unknown) {
 }
 export function SaveJob({ jobId }: { jobId: string }) {
   const [saved, setSaved] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    setReady(false);
+    api('saved-jobs/' + jobId)
+      .then((value: { saved: boolean }) => { if (mounted) setSaved(value.saved); })
+      .catch(() => { if (mounted) setSaved(false); })
+      .finally(() => { if (mounted) setReady(true); });
+    return () => { mounted = false; };
+  }, [jobId]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   return (
     <>
       <Button
         variant="secondary"
-        disabled={busy}
+        disabled={busy || !ready}
         onClick={async () => {
           setBusy(true);
           setError('');
@@ -46,7 +56,7 @@ export function SaveJob({ jobId }: { jobId: string }) {
         }}
       >
         <Bookmark size={17} />
-        {saved ? 'Saved to workspace' : 'Save job'}
+        {!ready ? 'Checking saved jobs…' : saved ? 'Saved to workspace' : 'Save job'}
       </Button>
       {error && (
         <Notice error>
@@ -116,6 +126,16 @@ export function NativeApply({
   const [message, setMessage] = useState('');
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resumes, setResumes] = useState<{ id: string; filename: string }[]>([]);
+  const [resumesReady, setResumesReady] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    api('resumes/eligible')
+      .then((rows: { id: string; filename: string }[]) => { if (mounted) setResumes(rows); })
+      .catch(() => { if (mounted) setResumes([]); })
+      .finally(() => { if (mounted) setResumesReady(true); });
+    return () => { mounted = false; };
+  }, []);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
@@ -147,13 +167,21 @@ export function NativeApply({
             <textarea id="coverLetter" name="coverLetter" rows={6} maxLength={10000} />
           </Field>
           <Field
-            label={resumeRequired ? 'Résumé identifier (required)' : 'Résumé identifier (optional)'}
+            label={resumeRequired ? 'Select a verified résumé (required)' : 'Select a verified résumé (optional)'}
             name="resumeId"
-            hint="Upload and clear a PDF in your workspace, then copy its identifier."
+            hint="Only your security-reviewed, clean PDFs are available here. Upload a new PDF in your workspace."
           >
-            <input id="resumeId" name="resumeId" required={resumeRequired} />
+            <select id="resumeId" name="resumeId" required={resumeRequired} disabled={!resumesReady}>
+              <option value="">{resumesReady ? 'Choose a résumé' : 'Loading your résumés…'}</option>
+              {resumes.map((resume) => (
+                <option key={resume.id} value={resume.id}>{resume.filename}</option>
+              ))}
+            </select>
           </Field>
-          <Button disabled={busy}>{busy ? 'Submitting…' : 'Submit application'}</Button>
+          {resumesReady && resumeRequired && !resumes.length && (
+            <Notice error>No clean résumé is available. Upload one in your workspace and complete security review first.</Notice>
+          )}
+          <Button disabled={busy || !resumesReady || (resumeRequired && !resumes.length)}>{busy ? 'Submitting…' : 'Submit application'}</Button>
         </form>
       )}
       {message && <Notice error={!ok}>{message}</Notice>}
