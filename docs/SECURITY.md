@@ -59,3 +59,8 @@ Never expose the backend directly and simply set the header variable.
 In production, Redis unavailability fails closed for rate-limited requests.
 The test environment intentionally uses local memory counters to keep authentication fixtures
 isolated. Authentication and API limits are independent defense layers.
+
+In test environments the outer authentication route limit is increased to 200/minute
+because integration and E2E clients share an unverified fallback IP bucket. Live
+deployments retain the stricter 20/minute outer limit plus Better Auth's inner
+distributed limit. Never configure `APP_ENV=test` on a public deployment.
