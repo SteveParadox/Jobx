@@ -13,7 +13,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 let client: S3Client | undefined;
 function storage() {
   if (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)
@@ -154,6 +154,35 @@ export async function deleteStoredResume(objectKey: string) {
   if (!/^resumes\/[a-zA-Z0-9_-]+\/[0-9a-f-]{36}\.pdf$/.test(objectKey))
     throw new Error('Unexpected résumé object key');
   await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: objectKey }));
+}
+/** Only delete objects belonging to a matching pending PostgreSQL cleanup command.
+ * Queue data alone must never authorize an S3 deletion.
+ */
+export async function deleteStoredResumeCommand(commandId: number, requestedObjectKey: string) {
+  if (!Number.isSafeInteger(commandId) || commandId <= 0)
+    throw new Error('Invalid storage deletion command identifier');
+  const db = getDb();
+  const [command] = await db
+    .select()
+    .from(s.outbox)
+    .where(and(eq(s.outbox.id, commandId), eq(s.outbox.topic, 'storage-delete')))
+    .limit(1);
+  if (!command || command.dispatchedAt) return { deleted: false };
+  const expectedObjectKey = (command.payload as { objectKey?: string })?.objectKey;
+  if (!expectedObjectKey || expectedObjectKey !== requestedObjectKey)
+    throw new Error('Storage deletion payload does not match the pending outbox command');
+  await deleteStoredResume(expectedObjectKey);
+  await db
+    .update(s.outbox)
+    .set({ dispatchedAt: new Date() })
+    .where(
+      and(
+        eq(s.outbox.id, commandId),
+        eq(s.outbox.topic, 'storage-delete'),
+        isNull(s.outbox.dispatchedAt),
+      ),
+    );
+  return { deleted: true };
 }
 export async function removeResume(actor: Actor, id: string) {
   await getDb().transaction(async (tx) => {

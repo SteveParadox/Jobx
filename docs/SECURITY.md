@@ -64,3 +64,8 @@ In test environments the outer authentication route limit is increased to 200/mi
 because integration and E2E clients share an unverified fallback IP bucket. Live
 deployments retain the stricter 20/minute outer limit plus Better Auth's inner
 distributed limit. Never configure `APP_ENV=test` on a public deployment.
+
+The private-file deletion worker authorizes each deletion using the PostgreSQL outbox
+record before calling S3. A BullMQ payload on its own cannot select a private object
+for deletion. A worker rejects mismatched identifiers and keys and treats already-acknowledged
+commands as idempotent no-ops. Restrict Redis and worker credentials to trusted services.

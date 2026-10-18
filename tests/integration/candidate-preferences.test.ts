@@ -485,3 +485,18 @@ it('rejects a finished PDF upload after erasure and queues deletion of the orpha
     });
   }
 });
+
+it('refuses a mismatched queue payload before attempting private S3 deletion', async () => {
+  const { deleteStoredResumeCommand } = await import('../../src/integrations/storage');
+  const [row] = await ctx.db.insert(s.outbox).values({
+    topic: 'storage-delete',
+    payload: { objectKey: 'resumes/candidate/123e4567-e89b-12d3-a456-426614174000.pdf' },
+    dedupeKey: 'storage-delete:test-mismatch',
+  }).returning();
+  await expect(deleteStoredResumeCommand(
+    row.id,
+    'resumes/candidate/123e4567-e89b-12d3-a456-426614174001.pdf',
+  )).rejects.toThrow('does not match');
+  const [pending] = await ctx.db.select().from(s.outbox).where(eq(s.outbox.id, row.id));
+  expect(pending.dispatchedAt).toBeNull();
+});
