@@ -73,8 +73,21 @@ const worker = new Worker(
         return deliverNotification(job.data.id);
       case 'index':
         return submitIndexing(job.data.id);
-      case 'storage-delete':
-        return deleteStoredResume(job.data.objectKey);
+      case 'storage-delete': {
+        await deleteStoredResume(job.data.objectKey);
+        // Acknowledging in PostgreSQL after successful S3 deletion makes replay safe.
+        // Old queued jobs may lack commandId: parse their stable outbox job identity.
+        const commandId = Number(
+          job.data.commandId ?? /^outbox-(\d+)/.exec(String(job.id ?? ''))?.[1],
+        );
+        if (!Number.isSafeInteger(commandId) || commandId <= 0)
+          throw new Error('Storage deletion command is missing a valid outbox identity');
+        await getDb()
+          .update(s.outbox)
+          .set({ dispatchedAt: new Date() })
+          .where(and(eq(s.outbox.id, commandId), eq(s.outbox.topic, 'storage-delete')));
+        return { deleted: true };
+      }
       default:
         throw new Error('Unknown background task');
     }

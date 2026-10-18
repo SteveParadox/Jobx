@@ -336,8 +336,7 @@ export async function syncSource(
           stats.protected++;
         } else if (
           job.fingerprint !== fp ||
-          (job.status !== nextStatus &&
-            (nextStatus !== 'pending' || ['closed', 'expired', 'paused'].includes(job.status)))
+          job.status !== nextStatus
         ) {
           const previous = job;
           const status = nextStatus;

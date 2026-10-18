@@ -677,3 +677,31 @@ describe('durable worker recovery and transactional safety', () => {
     await expect(ctx.db.insert(s.ingestionTasks).values({ sourceId: source.id })).rejects.toThrow();
   });
 });
+
+describe('storage deletion outbox replay guarantees', () => {
+  it('does not mark S3 cleanup complete merely because BullMQ accepted a job', async () => {
+    const row = (await ctx.db.insert(s.outbox)
+      .values({
+        topic: 'storage-delete',
+        payload: { objectKey: 'resumes/candidate/123e4567-e89b-12d3-a456-426614174000.pdf' },
+        dedupeKey: 'storage-delete:fixture',
+      })
+      .returning())[0];
+    const seen: { name: string; jobId: string; payload: unknown }[] = [];
+    const workerQueue = {
+      add: async (name: string, payload: unknown, options: { jobId: string }) => {
+        seen.push({ name, payload, jobId: options.jobId });
+      },
+    };
+    const first = new Date('2026-10-18T08:00:00.000Z');
+    await dispatchCommands(workerQueue, first);
+    const [unacknowledged] = await ctx.db.select().from(s.outbox)
+      .where(eq(s.outbox.id, row.id));
+    expect(unacknowledged.dispatchedAt).toBeNull();
+    await dispatchCommands(workerQueue, new Date('2026-10-18T08:05:00.000Z'));
+    expect(seen.at(-1)?.jobId).toBe(seen.at(-2)?.jobId);
+    await dispatchCommands(workerQueue, new Date('2026-10-18T09:05:00.000Z'));
+    expect(seen.at(-1)?.jobId).not.toBe(seen.at(-2)?.jobId);
+    expect(seen.at(-1)?.payload).toMatchObject({ commandId: row.id });
+  });
+});

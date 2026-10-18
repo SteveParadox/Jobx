@@ -9,7 +9,7 @@ export type TaskQueue = {
     options: { jobId: string; attempts?: number },
   ) => Promise<unknown>;
 };
-export async function dispatchCommands(queue: TaskQueue) {
+export async function dispatchCommands(queue: TaskQueue, now = new Date()) {
   const db = getDb();
   const commands = await db
     .select()
@@ -18,12 +18,26 @@ export async function dispatchCommands(queue: TaskQueue) {
     .orderBy(s.outbox.id)
     .limit(100);
   for (const command of commands) {
-    await queue.add(command.topic, command.payload, {
-      jobId: 'outbox-' + command.id,
+    const isStorageDeletion = command.topic === 'storage-delete';
+    // Storage deletions are acknowledged only *after* S3 confirms deletion.
+    // Replaying with a fresh hourly job ID lets jobs exhausted by a prolonged
+    // storage outage recover without manually changing database records.
+    const jobId = isStorageDeletion
+      ? 'outbox-' + command.id + '-retry-' + Math.floor(now.getTime() / 3600000)
+      : 'outbox-' + command.id;
+    const payload = isStorageDeletion
+      ? { ...(command.payload as Record<string, unknown>), commandId: command.id }
+      : command.payload;
+    await queue.add(command.topic, payload, {
+      jobId,
       ...(command.topic === 'ingestion' ? { attempts: 1 } : {}),
     });
-    // A crash between add and ack safely repeats the same BullMQ identity.
-    await db.update(s.outbox).set({ dispatchedAt: new Date() }).where(eq(s.outbox.id, command.id));
+    if (!isStorageDeletion) {
+      // Other command types acknowledge durable queue submission, not completion.
+      await db.update(s.outbox)
+        .set({ dispatchedAt: new Date() })
+        .where(eq(s.outbox.id, command.id));
+    }
   }
   return commands.length;
 }
