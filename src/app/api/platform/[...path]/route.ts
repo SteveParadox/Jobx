@@ -38,7 +38,7 @@ import { searchJobs, suggestions } from '@/domain/search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
-import { removeResume, removeUserObjects, resumeAccess } from '@/integrations/storage';
+import { removeResume, queueResumeCleanup, resumeAccess } from '@/integrations/storage';
 import { admin, currentActor, employerAccess, requireActor } from '@/lib/auth';
 import { env } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
@@ -178,9 +178,11 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
           409,
           'Transfer organization ownership through support before deleting your account',
         );
-      await removeUserObjects(actor);
       await db.transaction(async (tx) => {
         await tx.select().from(s.user).where(eq(s.user.id, actor.id)).for('update');
+        const documents = await tx.select({ id: s.resumes.id, objectKey: s.resumes.objectKey })
+          .from(s.resumes).where(eq(s.resumes.userId, actor.id)).for('update');
+        await queueResumeCleanup(tx, documents);
         await tx.delete(s.session).where(eq(s.session.userId, actor.id));
         await tx.delete(s.account).where(eq(s.account.userId, actor.id));
         await tx.delete(s.profiles).where(eq(s.profiles.userId, actor.id));
@@ -208,7 +210,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       });
       return {
         message:
-          'Personal profile, credentials and candidate records deleted. Required accounting and audit records are retained under the retention policy.',
+          'Your account has been disabled and personal records erased. Private document deletion is queued for durable background cleanup. Required accounting and audit records remain under the retention policy.',
       };
     }
     if (method === 'PUT' && path === 'profile') {

@@ -115,11 +115,37 @@ export async function deliverNotification(id: string) {
     const [alert] = d.alertId
       ? await tx.select().from(s.alerts).where(eq(s.alerts.id, d.alertId))
       : [];
+    // Invitations are sent to a prospective member, not to the inviter's email.
+    // Verify the invitation's current recipient, expiry, employer and inviter authority.
+    const invitationId = d.dedupeKey.startsWith('invitation:')
+      ? d.dedupeKey.slice('invitation:'.length)
+      : null;
+    const [invitation] = invitationId
+      ? await tx.select().from(s.invitations).where(eq(s.invitations.id, invitationId))
+      : [];
+    const [inviterMembership] = invitation
+      ? await tx
+          .select({ role: s.memberships.role, disabled: s.employers.disabled })
+          .from(s.memberships)
+          .innerJoin(s.employers, eq(s.memberships.employerId, s.employers.id))
+          .where(and(eq(s.memberships.employerId, invitation.employerId), eq(s.memberships.userId, d.userId)))
+      : [];
+    const validRecipient = invitationId
+      ? Boolean(
+          invitation &&
+            invitation.email === d.to.trim().toLowerCase() &&
+            !invitation.acceptedAt &&
+            invitation.expiresAt > new Date() &&
+            inviterMembership &&
+            !inviterMembership.disabled &&
+            ['owner', 'admin'].includes(inviterMembership.role),
+        )
+      : owner?.email === d.to;
     if (
       !owner ||
       owner.disabled ||
       !owner.emailVerified ||
-      owner.email !== d.to ||
+      !validRecipient ||
       (d.alertId &&
         (!alert?.enabled ||
           alert.channel !== 'email' ||
@@ -161,7 +187,7 @@ export async function deliverNotification(id: string) {
       await tx
         .update(s.deliveries)
         .set({
-          status: 'pending',
+          status: d.attempts + 1 >= 5 ? 'review' : 'pending',
           lastError: error instanceof Error ? error.message.slice(0, 500) : 'Email delivery failed',
         })
         .where(eq(s.deliveries.id, id));

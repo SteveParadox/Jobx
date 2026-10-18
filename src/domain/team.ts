@@ -15,11 +15,12 @@ export async function invite(
   await employerAccess(actor, employerId, ['owner', 'admin']);
   const secret = token();
   return getDb().transaction(async (tx) => {
+    const recipient = email.trim().toLowerCase();
     const [invitation] = await tx
       .insert(s.invitations)
       .values({
         employerId,
-        email: email.toLowerCase(),
+        email: recipient,
         role,
         tokenHash: digest(secret),
         expiresAt: new Date(Date.now() + 7 * 86400000),
@@ -27,7 +28,7 @@ export async function invite(
       .returning();
     await tx.insert(s.deliveries).values({
       userId: actor.id,
-      to: email,
+      to: recipient,
       subject: `Invitation to ${brand.name}`,
       body: `<p>You have been invited to an employer team. <a href="${brand.url}/invite?token=${escapeHtml(secret)}">Review and accept invitation</a></p>`,
       dedupeKey: 'invitation:' + invitation.id,

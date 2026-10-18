@@ -7,6 +7,7 @@ import { expireSourceAuthorizations } from '@/domain/source-management';
 import { expireJobs } from '@/domain/jobs';
 import { deliverNotification, generateDigests } from '@/domain/notifications';
 import { submitIndexing } from '@/integrations/indexing';
+import { deleteStoredResume } from '@/integrations/storage';
 import { assertRuntime, env } from '@/lib/config';
 import { log } from '@/lib/log';
 import { queueConnection } from '@/lib/queue';
@@ -72,6 +73,8 @@ const worker = new Worker(
         return deliverNotification(job.data.id);
       case 'index':
         return submitIndexing(job.data.id);
+      case 'storage-delete':
+        return deleteStoredResume(job.data.objectKey);
       default:
         throw new Error('Unknown background task');
     }
