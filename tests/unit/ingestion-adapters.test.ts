@@ -364,6 +364,12 @@ describe('authorized source adapters', () => {
     expect(() => sourceConfigSchema.parse({
       locationOverrides: { Anywhere: { workplace: 'remote', remoteCountries: [] } },
     })).toThrow();
+    const shadow = await sourceAdapter('greenhouse').fetch(context('greenhouse', JSON.stringify({
+      jobs: [{ id: 11, title: 'Engineer', absolute_url: 'https://careers.example.com/11',
+        content: description, location: { name: 'constructor' } }],
+    })));
+    expect(shadow.records[0].data.workplace).toBe('unknown');
+    expect(shadow.records[0].data.country).toBeUndefined();
   });
   it('guards browser execution and unsafe mapping paths', async () => {
     await expect(

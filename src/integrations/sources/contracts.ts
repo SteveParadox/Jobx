@@ -79,6 +79,11 @@ export const sourceConfigSchema = z
         remoteCountries: z.array(z.string().regex(/^[A-Z]{2}$/)).max(100).default([]),
       }).refine((v) => v.workplace === 'remote' ? v.remoteCountries.length > 0 : Boolean(v.country),
         'Location override needs physical country or explicit remote eligibility'),
+    ).refine(
+      (value) => Object.keys(value).every(
+        (key) => !['__proto__', 'prototype', 'constructor'].includes(key),
+      ),
+      'Location override keys cannot shadow object prototype properties',
     ).default({}),
     fieldMap: z.preprocess(
       (value) => {
