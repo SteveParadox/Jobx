@@ -128,7 +128,12 @@ export async function deliverNotification(id: string) {
           .select({ role: s.memberships.role, disabled: s.employers.disabled })
           .from(s.memberships)
           .innerJoin(s.employers, eq(s.memberships.employerId, s.employers.id))
-          .where(and(eq(s.memberships.employerId, invitation.employerId), eq(s.memberships.userId, d.userId)))
+          .where(
+            and(
+              eq(s.memberships.employerId, invitation.employerId),
+              eq(s.memberships.userId, d.userId),
+            ),
+          )
       : [];
     const validRecipient = invitationId
       ? Boolean(
@@ -181,7 +186,7 @@ export async function deliverNotification(id: string) {
       const providerId = await sendEmail(d.to, d.subject, d.body, d.dedupeKey);
       await tx
         .update(s.deliveries)
-        .set({ status: 'sent', sentAt: new Date(), providerId, to: owner.email, lastError: null })
+        .set({ status: 'sent', sentAt: new Date(), providerId, lastError: null })
         .where(eq(s.deliveries.id, id));
     } catch (error) {
       await tx

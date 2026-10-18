@@ -45,8 +45,7 @@ export function assertRuntime() {
     throw new Error('A production Vercel deployment must use APP_ENV=production');
   if (process.env.VERCEL_ENV === 'preview' && env.APP_ENV === 'production')
     throw new Error('A preview deployment must not be treated as public production');
-  if (env.APP_ENV === 'production' && !process.env.VERCEL &&
-      !process.env.TRUSTED_PROXY_IP_HEADER)
+  if (env.APP_ENV === 'production' && process.env.VERCEL !== '1' && !process.env.TRUSTED_PROXY_IP_HEADER)
     throw new Error('Production self-hosting requires a trusted ingress IP header configuration');
   if (process.env.TRUSTED_PROXY_IP_HEADER &&
       !['x-real-ip', 'cf-connecting-ip'].includes(process.env.TRUSTED_PROXY_IP_HEADER))

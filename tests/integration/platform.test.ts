@@ -185,6 +185,7 @@ describe('employers and moderation', () => {
     expect(delivery.to).toBe(candidate.email);
     expect(delivery.userId).toBe(owner.id);
     await deliverNotification(delivery.id);
+    expect((await ctx.db.select().from(s.deliveries))[0].to).toBe(candidate.email);
     expect((await ctx.db.select().from(s.deliveries))[0]).toMatchObject({
       status: 'sent', attempts: 1,
     });

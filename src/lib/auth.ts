@@ -61,10 +61,14 @@ function createAuth() {
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
     advanced: {
       useSecureCookies: isProduction,
-      ipAddress: { ipAddressHeaders: [
-        process.env.VERCEL === '1' ? 'x-vercel-forwarded-for' :
-          (process.env.TRUSTED_PROXY_IP_HEADER || 'x-real-ip'),
-      ] },
+      ipAddress: {
+        // An unconfigured self-hosted service must not trust user-supplied proxy headers.
+        ipAddressHeaders: [
+          process.env.VERCEL === '1'
+            ? 'x-vercel-forwarded-for'
+            : process.env.TRUSTED_PROXY_IP_HEADER || 'x-careeratlas-unverified-client',
+        ],
+      },
     },
     rateLimit: {
       enabled: true,
