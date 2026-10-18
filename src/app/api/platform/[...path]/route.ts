@@ -181,17 +181,20 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method === 'POST' && path === 'account/delete') {
       const data = await body(req, z.object({ confirmation: z.literal('DELETE') }));
       void data;
-      const owned = await db
-        .select()
-        .from(s.memberships)
-        .where(and(eq(s.memberships.userId, actor.id), eq(s.memberships.role, 'owner')));
-      if (owned.length)
-        throw new AppError(
-          409,
-          'Transfer organization ownership through support before deleting your account',
-        );
       await db.transaction(async (tx) => {
-        await tx.select().from(s.user).where(eq(s.user.id, actor.id)).for('update');
+        // Lock account before checking ownership. Employer creation takes the same lock.
+        const [account] = await tx.select({ disabled: s.user.disabled })
+          .from(s.user).where(eq(s.user.id, actor.id)).for('update');
+        if (!account || account.disabled)
+          throw new AppError(409, 'Account is no longer active');
+        const owned = await tx.select({ employerId: s.memberships.employerId })
+          .from(s.memberships)
+          .where(and(eq(s.memberships.userId, actor.id), eq(s.memberships.role, 'owner')));
+        if (owned.length)
+          throw new AppError(
+            409,
+            'Transfer organization ownership through support before deleting your account',
+          );
         const documents = await tx.select({ id: s.resumes.id, objectKey: s.resumes.objectKey })
           .from(s.resumes).where(eq(s.resumes.userId, actor.id)).for('update');
         await queueResumeCleanup(tx, documents);

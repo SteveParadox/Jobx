@@ -64,3 +64,8 @@ to overwrite the selected header while blocking direct access to the app origin.
 The setting is not safe on an internet-reachable backend without that gateway. Redis is
 required for distributed authentication rate limits. No proxy-header configuration is
 necessary for local development where untrusted clients share a conservative fallback bucket.
+
+Production runtime explicitly requires `APP_ENV`, even when running a locally built production
+image without Vercel environment variables. The request proxy returns HTTP 503 if a
+`NODE_ENV=production` service was started without `APP_ENV`. Use `APP_ENV=staging`
+for pre-production environments, and `APP_ENV=production` only after required checks.

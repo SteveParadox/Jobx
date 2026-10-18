@@ -115,6 +115,13 @@ describe('employers and moderation', () => {
     expect(membership.userId).toBe(owner.id);
     expect(membership.role).toBe('owner');
   });
+  it('does not create an organization for a deleted or disabled account', async () => {
+    await ctx.db.update(s.user).set({ disabled: true }).where(eq(s.user.id, candidate.id));
+    await expect(createEmployer(candidate, {
+      name: 'Unauthorized company',
+      website: 'https://example.com',
+    })).rejects.toMatchObject({ status: 409 });
+  });
   it('requires administrator approval to publish', async () => {
     const j = await draft();
     await transitionJob(owner, j.id, 'submit');

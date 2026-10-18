@@ -54,6 +54,11 @@ export function fingerprint(
 export async function createEmployer(actor: Actor, input: unknown) {
   const data = employerSchema.parse(input);
   return getDb().transaction(async (tx) => {
+    // Serialize organization creation with account erasure of the same owner.
+    const [freshOwner] = await tx.select({ disabled: s.user.disabled })
+      .from(s.user).where(eq(s.user.id, actor.id)).for('update');
+    if (!freshOwner || freshOwner.disabled)
+      throw new AppError(409, 'Account is not available for new organizations');
     const [company] = await tx
       .insert(s.employers)
       .values({ ...data, slug: `${slugify(data.name)}-${crypto.randomUUID().slice(0, 8)}` })
