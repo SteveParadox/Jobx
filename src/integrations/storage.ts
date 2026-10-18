@@ -1,9 +1,11 @@
 import { getDb } from '@/db';
 import * as s from '@/db/schema';
 import { type Actor, employerAccess } from '@/lib/auth';
+import type { Tx } from '@/domain/jobs';
 import { env } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
 import { digest } from '@/lib/security';
+import { log } from '@/lib/log';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -11,7 +13,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 let client: S3Client | undefined;
 function storage() {
   if (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)
@@ -42,23 +44,61 @@ export async function uploadResume(actor: Actor, bytes: Buffer, filename: string
       ContentDisposition: 'attachment',
     }),
   );
+  let cleanupQueued = false;
   try {
-    return (
-      await getDb()
-        .insert(s.resumes)
-        .values({
-          userId: actor.id,
-          objectKey,
-          filename: filename.replace(/[^a-zA-Z0-9 ._-]/g, '').slice(0, 100) || 'resume.pdf',
-          mime,
-          bytes: bytes.length,
-          sha256: digest(bytes),
-          status: 'quarantined',
-        })
-        .returning({ id: s.resumes.id, status: s.resumes.status })
-    )[0];
+    const created = await getDb().transaction(async (tx) => {
+      // Serialize the final upload decision with account erasure. Uploads
+      // finishing after account deletion must not leave a new résumé row.
+      const [user] = await tx
+        .select({ disabled: s.user.disabled })
+        .from(s.user)
+        .where(eq(s.user.id, actor.id))
+        .for('update');
+      if (!user || user.disabled) {
+        await tx.insert(s.outbox).values({
+          topic: 'storage-delete',
+          payload: { objectKey },
+          dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
+        }).onConflictDoNothing();
+        return null;
+      }
+      return (
+        await tx
+          .insert(s.resumes)
+          .values({
+            userId: actor.id,
+            objectKey,
+            filename: filename.replace(/[^a-zA-Z0-9 ._-]/g, '').slice(0, 100) || 'resume.pdf',
+            mime,
+            bytes: bytes.length,
+            sha256: digest(bytes),
+            status: 'quarantined',
+          })
+          .returning({ id: s.resumes.id, status: s.resumes.status })
+      )[0];
+    });
+    if (!created) {
+      cleanupQueued = true;
+      throw new AppError(409, 'The account is no longer active; the uploaded document is queued for deletion');
+    }
+    return created;
   } catch (error) {
-    await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: objectKey }));
+    if (!cleanupQueued) {
+      try {
+        await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: objectKey }));
+      } catch {
+        // Attempt a durable fallback if immediate compensation is unavailable.
+        try {
+          await getDb().insert(s.outbox).values({
+            topic: 'storage-delete',
+            payload: { objectKey },
+            dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
+          }).onConflictDoNothing();
+        } catch {
+          log('resume_orphan_cleanup_unavailable', { objectKeyDigest: digest(objectKey) });
+        }
+      }
+    }
     throw error;
   }
 }
@@ -98,20 +138,61 @@ export async function resumeAccess(actor: Actor, id: string) {
     { expiresIn: 60 },
   );
 }
-export async function removeResume(actor: Actor, id: string) {
-  const resume = requireValue(
-    (
-      await getDb()
-        .select()
-        .from(s.resumes)
-        .where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)))
-    )[0],
-  );
-  await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: resume.objectKey }));
-  await getDb().delete(s.resumes).where(eq(s.resumes.id, id));
+/** Record a durable deletion command inside the same transaction that removes metadata.
+ * The worker repeats object deletion safely after crashes and transient S3 failures.
+ */
+export async function queueResumeCleanup(tx: Tx, documents: { id: string; objectKey: string }[]) {
+  for (const document of documents) {
+    await tx.insert(s.outbox).values({
+      topic: 'storage-delete',
+      payload: { objectKey: document.objectKey },
+      dedupeKey: 'storage-delete:' + document.id,
+    }).onConflictDoNothing();
+  }
 }
-export async function removeUserObjects(actor: Actor) {
-  const rows = await getDb().select().from(s.resumes).where(eq(s.resumes.userId, actor.id));
-  for (const row of rows)
-    await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: row.objectKey }));
+export async function deleteStoredResume(objectKey: string) {
+  if (!/^resumes\/[a-zA-Z0-9_-]+\/[0-9a-f-]{36}\.pdf$/.test(objectKey))
+    throw new Error('Unexpected résumé object key');
+  await storage().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: objectKey }));
+}
+/** Only delete objects belonging to a matching pending PostgreSQL cleanup command.
+ * Queue data alone must never authorize an S3 deletion.
+ */
+export async function deleteStoredResumeCommand(commandId: number, requestedObjectKey: string) {
+  if (!Number.isSafeInteger(commandId) || commandId <= 0)
+    throw new Error('Invalid storage deletion command identifier');
+  const db = getDb();
+  const [command] = await db
+    .select()
+    .from(s.outbox)
+    .where(and(eq(s.outbox.id, commandId), eq(s.outbox.topic, 'storage-delete')))
+    .limit(1);
+  if (!command || command.dispatchedAt) return { deleted: false };
+  const expectedObjectKey = (command.payload as { objectKey?: string })?.objectKey;
+  if (!expectedObjectKey || expectedObjectKey !== requestedObjectKey)
+    throw new Error('Storage deletion payload does not match the pending outbox command');
+  await deleteStoredResume(expectedObjectKey);
+  await db
+    .update(s.outbox)
+    .set({ dispatchedAt: new Date() })
+    .where(
+      and(
+        eq(s.outbox.id, commandId),
+        eq(s.outbox.topic, 'storage-delete'),
+        isNull(s.outbox.dispatchedAt),
+      ),
+    );
+  return { deleted: true };
+}
+export async function removeResume(actor: Actor, id: string) {
+  await getDb().transaction(async (tx) => {
+    const resume = requireValue(
+      (await tx.select().from(s.resumes)
+        .where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)))
+        .for('update'))[0],
+    );
+    await queueResumeCleanup(tx, [resume]);
+    await tx.delete(s.resumes)
+      .where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)));
+  });
 }

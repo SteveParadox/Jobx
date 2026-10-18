@@ -69,7 +69,13 @@ export const atsAdapters: SourceAdapter[] = ['greenhouse', 'lever', 'lever_eu', 
         merge(
           snapshot,
           snapshotFromRows(rows, (row) => {
-            if (provider === 'greenhouse') return parseGreenhouse({ jobs: [row] })[0];
+            if (provider === 'greenhouse') {
+              const parsed = parseGreenhouse({ jobs: [row] })[0];
+              const override = Object.hasOwn(ctx.config.locationOverrides, parsed.data.locationLabel)
+                ? ctx.config.locationOverrides[parsed.data.locationLabel]
+                : undefined;
+              return override ? { ...parsed, data: { ...parsed.data, ...override } } : parsed;
+            }
             if (provider.startsWith('lever')) return parseLever([row])[0];
             return normalizeAshby(row);
           }),

@@ -68,6 +68,23 @@ export const sourceConfigSchema = z
     detailSelector: z.string().max(200).optional(),
     emptySelector: z.string().max(200).optional(),
     waitForSelector: z.string().max(200).optional(),
+    // Exact employer-approved location overrides; never infer country from free-text.
+    locationOverrides: z.record(
+      z.string().min(1).max(250),
+      z.object({
+        country: z.string().regex(/^[A-Z]{2}$/).optional(),
+        region: z.string().max(150).optional(),
+        city: z.string().max(150).optional(),
+        workplace: z.enum(['onsite', 'hybrid', 'remote']),
+        remoteCountries: z.array(z.string().regex(/^[A-Z]{2}$/)).max(100).default([]),
+      }).refine((v) => v.workplace === 'remote' ? v.remoteCountries.length > 0 : Boolean(v.country),
+        'Location override needs physical country or explicit remote eligibility'),
+    ).refine(
+      (value) => Object.keys(value).every(
+        (key) => !['__proto__', 'prototype', 'constructor'].includes(key),
+      ),
+      'Location override keys cannot shadow object prototype properties',
+    ).default({}),
     fieldMap: z.preprocess(
       (value) => {
         if (

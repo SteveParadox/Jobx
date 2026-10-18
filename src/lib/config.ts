@@ -41,6 +41,15 @@ const schema = z.object({
 export const env = schema.parse(process.env);
 export const isProduction = env.APP_ENV === 'production';
 export function assertRuntime() {
+  if (process.env.VERCEL_ENV === 'production' && env.APP_ENV !== 'production')
+    throw new Error('A production Vercel deployment must use APP_ENV=production');
+  if (process.env.VERCEL_ENV === 'preview' && env.APP_ENV === 'production')
+    throw new Error('A preview deployment must not be treated as public production');
+  if (env.APP_ENV === 'production' && process.env.VERCEL !== '1' && !process.env.TRUSTED_PROXY_IP_HEADER)
+    throw new Error('Production self-hosting requires a trusted ingress IP header configuration');
+  if (process.env.TRUSTED_PROXY_IP_HEADER &&
+      !['x-real-ip', 'cf-connecting-ip'].includes(process.env.TRUSTED_PROXY_IP_HEADER))
+    throw new Error('TRUSTED_PROXY_IP_HEADER must name a supported sanitized ingress header');
   if (env.EMAIL_TRANSPORT === 'development' && !['development', 'test'].includes(env.APP_ENV))
     throw new Error('Development email transport is forbidden outside development/test');
   if (env.GOOGLE_INDEXING_ENABLED && (!env.GOOGLE_CLIENT_EMAIL || !env.GOOGLE_PRIVATE_KEY))

@@ -345,6 +345,32 @@ describe('authorized source adapters', () => {
       }),
     ).toBeNull();
   });
+  it('uses only exact approved Greenhouse location overrides to enable publication-quality locations', async () => {
+    const payload = JSON.stringify({ jobs: [
+      { id: 42, title: 'Backend Engineer', absolute_url: 'https://careers.example.com/jobs/42',
+        content: description, location: { name: 'Lagos, Nigeria' } },
+    ] });
+    const unmapped = await sourceAdapter('greenhouse').fetch(context('greenhouse', payload));
+    expect(unmapped.records[0].data.workplace).toBe('unknown');
+    expect(unmapped.records[0].data.country).toBeUndefined();
+    const mapped = await sourceAdapter('greenhouse').fetch(context('greenhouse', payload, {
+      locationOverrides: {
+        'Lagos, Nigeria': { country: 'NG', city: 'Lagos', workplace: 'onsite' },
+      },
+    }));
+    expect(mapped.records[0].data).toMatchObject({
+      country: 'NG', city: 'Lagos', workplace: 'onsite',
+    });
+    expect(() => sourceConfigSchema.parse({
+      locationOverrides: { Anywhere: { workplace: 'remote', remoteCountries: [] } },
+    })).toThrow();
+    const shadow = await sourceAdapter('greenhouse').fetch(context('greenhouse', JSON.stringify({
+      jobs: [{ id: 11, title: 'Engineer', absolute_url: 'https://careers.example.com/11',
+        content: description, location: { name: 'constructor' } }],
+    })));
+    expect(shadow.records[0].data.workplace).toBe('unknown');
+    expect(shadow.records[0].data.country).toBeUndefined();
+  });
   it('guards browser execution and unsafe mapping paths', async () => {
     await expect(
       sourceAdapter('authorized_browser').fetch(context('authorized_browser', '')),

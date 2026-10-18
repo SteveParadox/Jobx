@@ -47,3 +47,46 @@ Admin → Sources shows the most recent 100 source runs/tasks and quarantine rec
 A lease-expired worker is recovered after ten minutes. A stale acknowledged command for an unclaimed task is reissued after ten minutes; pending commands remain durable during broker outages. Cancelling a task stops that occurrence. Disable the source to stop recurrence. Changed/revoked/expired permissions withdraw source-owned records and indexing membership; they do not erase forensic history or overwrite employer-managed copies.
 
 Configure monitoring for `dead_letter`, repeated source failures, overdue `next_sync_at`, expired leases, nonempty undispatched outbox, quarantine spikes and stale heartbeat. Raw payload retention needs the persistent minute worker. Source-specific confirmation counts/gaps are documented in JOB_INGESTION; never reset missing counters because a fetch failed.
+
+## Résumé/object storage deletion recovery
+
+Individual résumé deletion and candidate account erasure now enqueue `storage-delete` outbox
+commands in the same PostgreSQL transaction as deleting résumé metadata. This prevents
+a database rollback from leaving missing objects while records still reference them.
+The persistent worker dispatches these commands to BullMQ and deletes the private S3
+objects idempotently. Cleanup is asynchronous: confirm outstanding outbox deliveries and
+failed BullMQ `storage-delete` jobs after any S3 outage. The failed-job queue retains
+errors only within its configured retention window; investigate and safely replay
+failures before expiration. Treat long-outstanding deletions as privacy incidents.
+Do not clear the outbox or Redis while private-object cleanup is outstanding.
+
+The successful account-delete response means account access and personal database records are
+removed; physical private-object deletion may still be queued. Monitor until the latter completes.
+
+### Storage deletion acknowledgment and replay
+
+`storage-delete` commands are different from ordinary queue-dispatch commands:
+the PostgreSQL outbox remains **unacknowledged** until S3 deletion succeeds and
+the background worker records completion. Dispatching uses a stable, one-hour
+BullMQ job identity per outbox row. When five attempts exhaust during an outage,
+a new job identity is eligible in the next hour while the outbox remains outstanding.
+This keeps cleanup recoverable beyond BullMQ's failed-job retention period. Deleting
+the same S3 object repeatedly is idempotent. Monitor the count and oldest age of
+unacknowledged `storage-delete` rows and alert operators on a growing backlog;
+hourly retries are not a replacement for S3 credential and availability monitoring.
+A crashed worker between S3 deletion and DB acknowledgment safely repeats deletion.
+
+### Upload/account-erasure race
+
+Resume upload verifies the current account under a row lock *after* storing the private PDF,
+then inserts its database metadata while holding the same lock used for account deletion.
+If the account was erased while S3 accepted the file, the database transaction queues
+a durable orphan-object deletion instead of recreating a résumé. If persistence itself
+fails, the upload attempts compensating S3 deletion and queues fallback cleanup if
+S3 is unavailable. A simultaneous loss of both PostgreSQL and S3 can still create
+an untracked object: enable storage inventory reconciliation, limited object lifetime for
+unreferenced uploads, and operational alerts as an independent safety net.
+
+The dispatcher reserves separate per-tick budgets for ingestion commands (80) and privacy
+cleanup (20), preventing either backlog from starving the other. Storage failures can still
+create a queue of outstanding erasure requests; alert on increasing age or count.

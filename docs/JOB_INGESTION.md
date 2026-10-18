@@ -162,3 +162,29 @@ Before public production ingestion, provision the persistent worker/database/bro
 ## PostgreSQL acceptance gate
 
 Supply both `TEST_POSTGRES_URL` and `TEST_REDIS_URL` to `npm test` to exercise the recorded-source lifecycle through BullMQ, an independent PostgreSQL pool, canonical jobs, generated search vectors, updates and confirmed closure. The PostgreSQL-only contention cases additionally check retry, recovery and failed-run lock ordering. See [TESTING.md](TESTING.md) for isolated database creation/cleanup and the required test role privileges. Without the PostgreSQL variable, the lifecycle uses PGlite and the three contention cases are explicitly skipped. This distinction is a release gate, not evidence of a passing production deployment.
+
+## Approved ATS location overrides
+
+The Greenhouse public feed may supply a human-readable location label without a validated
+country/workplace classification. Such jobs intentionally stay pending. Approved source
+administrators may configure *exact-match* `config.locationOverrides`, for example:
+
+```json
+{
+  "locationOverrides": {
+    "Lagos, Nigeria": {
+      "country": "NG",
+      "city": "Lagos",
+      "workplace": "onsite",
+      "remoteCountries": []
+    }
+  }
+}
+```
+
+These values must be verified against the employer's source of truth. Do not use broad
+text guessing or treat location labels as proof of worldwide remote eligibility.
+Config edits reset source approval and validation; review and test the revised mapping before
+enabling the source. A changed auto-publication policy can now promote an unchanged
+previously-pending source-owned job after the next approved successful sync, while protecting
+employer-owned records.

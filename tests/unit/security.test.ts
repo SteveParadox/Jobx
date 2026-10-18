@@ -178,3 +178,24 @@ it('rejects streamed requests before accumulating an oversized JSON body', async
     rawBody(new Request('http://localhost:3000', { method: 'POST', body: 'x'.repeat(100) }), 50),
   ).rejects.toMatchObject({ status: 413 });
 });
+
+it('does not trust spoofable x-forwarded-for for request rate keys without a configured ingress', async () => {
+  const { clientAddress } = await import('../../src/lib/http');
+  const original = process.env.TRUSTED_PROXY_IP_HEADER;
+  const vercel = process.env.VERCEL;
+  try {
+    delete process.env.VERCEL;
+    delete process.env.TRUSTED_PROXY_IP_HEADER;
+    const req = new Request('http://localhost:3000/api/platform/jobs', {
+      headers: { 'x-forwarded-for': '203.0.113.5', 'x-real-ip': '203.0.113.6' },
+    });
+    expect(clientAddress(req)).toBe('unverified');
+    process.env.TRUSTED_PROXY_IP_HEADER = 'x-real-ip';
+    expect(clientAddress(req)).toBe('203.0.113.6');
+  } finally {
+    if (original === undefined) delete process.env.TRUSTED_PROXY_IP_HEADER;
+    else process.env.TRUSTED_PROXY_IP_HEADER = original;
+    if (vercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = vercel;
+  }
+});

@@ -236,6 +236,19 @@ describe('approval and canonical ingestion lifecycle', () => {
     expect((await searchJobs({})).total).toBe(1);
     expect((await ctx.db.select().from(s.mappings))[0].missingCount).toBe(0);
   });
+  it('promotes unchanged pending jobs once approved auto-publication becomes enabled', async () => {
+    const source = await enabled();
+    await ctx.db.update(s.sources).set({ autoPublish: false })
+      .where(eq(s.sources.id, source.id));
+    await runSource(source.id);
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('pending');
+    await ctx.db.update(s.sources).set({ autoPublish: true })
+      .where(eq(s.sources.id, source.id));
+    await runSource(source.id);
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
+    expect((await searchJobs({})).total).toBe(1);
+    expect(await ctx.db.select().from(s.jobs)).toHaveLength(1);
+  });
   it('keeps unknown location and remote eligibility pending instead of fabricating publishable values', async () => {
     jobs()[0].country = undefined;
     jobs()[0].locationLabel = 'Location not specified';
@@ -662,5 +675,33 @@ describe('durable worker recovery and transactional safety', () => {
     const source = await enabled();
     await enqueueSource(root, source.id);
     await expect(ctx.db.insert(s.ingestionTasks).values({ sourceId: source.id })).rejects.toThrow();
+  });
+});
+
+describe('storage deletion outbox replay guarantees', () => {
+  it('does not mark S3 cleanup complete merely because BullMQ accepted a job', async () => {
+    const row = (await ctx.db.insert(s.outbox)
+      .values({
+        topic: 'storage-delete',
+        payload: { objectKey: 'resumes/candidate/123e4567-e89b-12d3-a456-426614174000.pdf' },
+        dedupeKey: 'storage-delete:fixture',
+      })
+      .returning())[0];
+    const seen: { name: string; jobId: string; payload: unknown }[] = [];
+    const workerQueue = {
+      add: async (name: string, payload: unknown, options: { jobId: string }) => {
+        seen.push({ name, payload, jobId: options.jobId });
+      },
+    };
+    const first = new Date('2026-10-18T08:00:00.000Z');
+    await dispatchCommands(workerQueue, first);
+    const [unacknowledged] = await ctx.db.select().from(s.outbox)
+      .where(eq(s.outbox.id, row.id));
+    expect(unacknowledged.dispatchedAt).toBeNull();
+    await dispatchCommands(workerQueue, new Date('2026-10-18T08:05:00.000Z'));
+    expect(seen.at(-1)?.jobId).toBe(seen.at(-2)?.jobId);
+    await dispatchCommands(workerQueue, new Date('2026-10-18T09:05:00.000Z'));
+    expect(seen.at(-1)?.jobId).not.toBe(seen.at(-2)?.jobId);
+    expect(seen.at(-1)?.payload).toMatchObject({ commandId: row.id });
   });
 });

@@ -54,6 +54,11 @@ export function fingerprint(
 export async function createEmployer(actor: Actor, input: unknown) {
   const data = employerSchema.parse(input);
   return getDb().transaction(async (tx) => {
+    // Serialize organization creation with account erasure of the same owner.
+    const [freshOwner] = await tx.select({ disabled: s.user.disabled })
+      .from(s.user).where(eq(s.user.id, actor.id)).for('update');
+    if (!freshOwner || freshOwner.disabled)
+      throw new AppError(409, 'Account is not available for new organizations');
     const [company] = await tx
       .insert(s.employers)
       .values({ ...data, slug: `${slugify(data.name)}-${crypto.randomUUID().slice(0, 8)}` })
@@ -453,7 +458,11 @@ export async function updateApplication(
   if (actor.id === app.application.userId) {
     if (status !== 'withdrawn' || note)
       throw new AppError(403, 'Candidates may only withdraw their own application');
-  } else await employerAccess(actor, app.job.employerId);
+  } else {
+    await employerAccess(actor, app.job.employerId);
+    if (status === 'withdrawn')
+      throw new AppError(403, 'Only the candidate may withdraw an application');
+  }
   return getDb().transaction(async (tx) => {
     const current = requireValue(
       (await tx.select().from(s.applications).where(eq(s.applications.id, id)).for('update'))[0],

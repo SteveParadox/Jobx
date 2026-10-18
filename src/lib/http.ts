@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { isIP } from 'node:net';
 import { z, ZodError } from 'zod';
 import { brand, env, isProduction } from './config';
 import { AppError } from './errors';
@@ -12,6 +13,19 @@ export function getRedis() {
 }
 export function sameOrigin(req: Request) {
   if (req.headers.get('origin') !== brand.url) throw new AppError(403, 'Invalid request origin');
+}
+/** Use only client-IP headers set and sanitized by a trusted ingress.
+ * Without a verified proxy, use one fail-closed anonymous rate bucket, not spoofable forwarded headers.
+ */
+export function clientAddress(req: Request): string {
+  const header = process.env.VERCEL === '1'
+    ? 'x-vercel-forwarded-for'
+    : process.env.TRUSTED_PROXY_IP_HEADER;
+  if (!header || !['x-vercel-forwarded-for', 'x-real-ip', 'cf-connecting-ip'].includes(header))
+    return 'unverified';
+  const forwarded = req.headers.get(header);
+  const address = forwarded?.split(',')[0]?.trim() ?? '';
+  return isIP(address) ? address : 'unverified';
 }
 export async function rateLimit(key: string, limit = 30, window = 60) {
   if (!env.REDIS_URL) {

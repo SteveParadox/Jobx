@@ -38,11 +38,11 @@ import { searchJobs, suggestions } from '@/domain/search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
-import { removeResume, removeUserObjects, resumeAccess } from '@/integrations/storage';
+import { removeResume, queueResumeCleanup, resumeAccess } from '@/integrations/storage';
 import { admin, currentActor, employerAccess, requireActor } from '@/lib/auth';
 import { env } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
-import { body, endpoint, rateLimit, sameOrigin } from '@/lib/http';
+import { body, clientAddress, endpoint, rateLimit, sameOrigin } from '@/lib/http';
 import { queueHealth } from '@/lib/queue';
 import { digest, sanitizeDescription } from '@/lib/security';
 import { and, desc, eq } from 'drizzle-orm';
@@ -74,7 +74,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
             .default({}),
         }),
       );
-      await rateLimit('analytics:' + (req.headers.get('x-forwarded-for') ?? 'unknown'), 60, 60);
+      await rateLimit('analytics:' + clientAddress(req), 60, 60);
       await db
         .insert(s.analytics)
         .values({ event: data.event, jobId: data.jobId, properties: data.properties });
@@ -83,20 +83,17 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method !== 'GET') {
       sameOrigin(req);
       await rateLimit(
-        'request:' +
-          (req.headers.get('x-vercel-forwarded-for') ??
-            req.headers.get('x-forwarded-for') ??
-            'unknown'),
+        'request:' + clientAddress(req),
         60,
         60,
       );
     }
     if (method === 'GET' && path === 'jobs') {
-      await rateLimit('search:' + (req.headers.get('x-forwarded-for') ?? 'unknown'), 120, 60);
+      await rateLimit('search:' + clientAddress(req), 120, 60);
       return searchJobs(Object.fromEntries(new URL(req.url).searchParams));
     }
     if (method === 'GET' && path === 'suggestions') {
-      await rateLimit('suggestions:' + (req.headers.get('x-forwarded-for') ?? 'unknown'), 120, 60);
+      await rateLimit('suggestions:' + clientAddress(req), 120, 60);
       return suggestions(new URL(req.url).searchParams.get('q') ?? '');
     }
     if (method === 'GET' && path === 'plans')
@@ -147,6 +144,21 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method === 'GET' && path === 'me')
       return { id: actor.id, name: actor.name, email: actor.email, role: actor.role };
     if (method === 'GET' && path === 'dashboard') return candidateDashboard(actor);
+    if (method === 'GET' && p[0] === 'saved-jobs' && p.length === 2) {
+      const [saved] = await db.select({ jobId: s.savedJobs.jobId })
+        .from(s.savedJobs)
+        .where(and(eq(s.savedJobs.userId, actor.id), eq(s.savedJobs.jobId, uuid(p[1]))))
+        .limit(1);
+      return { saved: Boolean(saved) };
+    }
+    if (method === 'GET' && path === 'resumes/eligible') {
+      return db.select({ id: s.resumes.id, filename: s.resumes.filename })
+        .from(s.resumes)
+        .where(and(eq(s.resumes.userId, actor.id), eq(s.resumes.status, 'clean')))
+        .orderBy(desc(s.resumes.createdAt))
+        .limit(50);
+    }
+
     if (method === 'PUT' && path === 'preferences')
       return updateCandidatePreferences(actor, await body(req, z.unknown()));
     if (method === 'DELETE' && p[0] === 'search-history' && p.length <= 2)
@@ -169,18 +181,23 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method === 'POST' && path === 'account/delete') {
       const data = await body(req, z.object({ confirmation: z.literal('DELETE') }));
       void data;
-      const owned = await db
-        .select()
-        .from(s.memberships)
-        .where(and(eq(s.memberships.userId, actor.id), eq(s.memberships.role, 'owner')));
-      if (owned.length)
-        throw new AppError(
-          409,
-          'Transfer organization ownership through support before deleting your account',
-        );
-      await removeUserObjects(actor);
       await db.transaction(async (tx) => {
-        await tx.select().from(s.user).where(eq(s.user.id, actor.id)).for('update');
+        // Lock account before checking ownership. Employer creation takes the same lock.
+        const [account] = await tx.select({ disabled: s.user.disabled })
+          .from(s.user).where(eq(s.user.id, actor.id)).for('update');
+        if (!account || account.disabled)
+          throw new AppError(409, 'Account is no longer active');
+        const owned = await tx.select({ employerId: s.memberships.employerId })
+          .from(s.memberships)
+          .where(and(eq(s.memberships.userId, actor.id), eq(s.memberships.role, 'owner')));
+        if (owned.length)
+          throw new AppError(
+            409,
+            'Transfer organization ownership through support before deleting your account',
+          );
+        const documents = await tx.select({ id: s.resumes.id, objectKey: s.resumes.objectKey })
+          .from(s.resumes).where(eq(s.resumes.userId, actor.id)).for('update');
+        await queueResumeCleanup(tx, documents);
         await tx.delete(s.session).where(eq(s.session.userId, actor.id));
         await tx.delete(s.account).where(eq(s.account.userId, actor.id));
         await tx.delete(s.profiles).where(eq(s.profiles.userId, actor.id));
@@ -208,7 +225,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       });
       return {
         message:
-          'Personal profile, credentials and candidate records deleted. Required accounting and audit records are retained under the retention policy.',
+          'Your account has been disabled and personal records erased. Private document deletion is queued for durable background cleanup. Required accounting and audit records remain under the retention policy.',
       };
     }
     if (method === 'PUT' && path === 'profile') {
