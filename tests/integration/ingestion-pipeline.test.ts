@@ -236,6 +236,19 @@ describe('approval and canonical ingestion lifecycle', () => {
     expect((await searchJobs({})).total).toBe(1);
     expect((await ctx.db.select().from(s.mappings))[0].missingCount).toBe(0);
   });
+  it('promotes unchanged pending jobs once approved auto-publication becomes enabled', async () => {
+    const source = await enabled();
+    await ctx.db.update(s.sources).set({ autoPublish: false })
+      .where(eq(s.sources.id, source.id));
+    await runSource(source.id);
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('pending');
+    await ctx.db.update(s.sources).set({ autoPublish: true })
+      .where(eq(s.sources.id, source.id));
+    await runSource(source.id);
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
+    expect((await searchJobs({})).total).toBe(1);
+    expect(await ctx.db.select().from(s.jobs)).toHaveLength(1);
+  });
   it('keeps unknown location and remote eligibility pending instead of fabricating publishable values', async () => {
     jobs()[0].country = undefined;
     jobs()[0].locationLabel = 'Location not specified';
