@@ -1,8 +1,11 @@
 import { jobSchema } from '@/domain/validation';
 import { digest, escapeHtml, plainText, publicUrl, sanitizeDescription } from '@/lib/security';
 import { z } from 'zod';
-import { alpha3ToAlpha2, isValid } from 'i18n-iso-countries';
+import countries from 'i18n-iso-countries';
+
 import { SourceError, type FeedJob, type Snapshot, type SourceContext } from './contracts';
+
+const { alpha3ToAlpha2, isValid } = countries;
 
 const sourceJobSchema = z
   .object({
