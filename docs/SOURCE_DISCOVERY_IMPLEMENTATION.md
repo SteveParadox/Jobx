@@ -1,25 +1,48 @@
-# Job source discovery implementation
+# Permission-aware source discovery
 
-## Current implementation slice
+## Current scope
 
-`src/domain/discovery/source-classifier.ts` provides deterministic primitives for safe candidate URL canonicalization, exact-host ATS pattern detection, same-host link resolution, and idempotent evidence merging. The tests in `tests/domain/discovery.test.ts` cover supported ATS URL patterns, lookalike-host rejection, unsafe URL rejection, and permission-state defaults.
+The discovery worker accepts a bounded list of operator-supplied HTTPS seed URLs. It canonicalizes URLs, recognizes Greenhouse, Lever (US/EU), and Ashby board URL patterns, deduplicates candidates, and records evidence and run history. It does not yet crawl arbitrary career sites, fetch sitemaps, or scrape job listings.
 
-This layer deliberately does **not** fetch candidate URLs, create employers, register `job_sources`, or grant redistribution rights. A detected ATS URL is evidence of a provider pattern, not evidence that the operator may republish its listings.
+Candidates appear in **Admin → Discovery**. An administrator can mark a candidate as identified, keep it in review, or reject it with a required note. Human review state is preserved across subsequent scans. Candidate review is not source approval.
 
-## Authorization boundary
+## Enable scheduled discovery
 
-Every discovered candidate sets `requiresPermissionReview: true`. Integrations must route candidates through the existing administrator-controlled source registration and `sourceApproved` checks before any source sync. Do not enable auto-publication based on public accessibility alone. Keep credentials out of URLs and logs.
+Set these environment variables for the persistent worker and web service:
 
-## Next integration requirements
+```dotenv
+JOB_DISCOVERY_ENABLED=true
+JOB_DISCOVERY_SEEDS=https://example.com/careers,https://jobs.ashbyhq.com/example
+JOB_DISCOVERY_INTERVAL_MINUTES=60
+```
 
-The remaining end-to-end work is to persist candidates and discovery runs in PostgreSQL, schedule bounded discovery from the persistent worker, add authenticated review APIs and Admin UI, and test the full fixture flow through the existing ingestion task/outbox system. Until those pieces are implemented and validated, this primitive layer alone is not a complete autonomous discovery service.
+The seed list accepts newline, comma, or semicolon separators. At most 200 unique seeds are processed per run. The interval must be between 15 minutes and 7 days. Discovery is disabled by default.
 
-## Safe integration contract
+Run the normal database migration command after deploying the code:
 
-- Accept configured seeds and employer-provided career URLs only.
-- Canonicalize HTTPS URLs and reject credential-bearing, IP-literal, localhost, and non-standard-port targets.
-- Resolve links only within the registered host unless an external ATS candidate is explicitly surfaced for review.
-- Use DNS/IP and redirect validation immediately before network requests; URL syntax checks alone do not prevent SSRF or DNS rebinding.
-- Bound candidate counts, sitemap depth, page size, response bytes, timeouts, and per-host concurrency.
-- Keep candidate evidence, employer identity evidence, source permission evidence, and publication permission separate.
-- Treat robots directives, provider terms, explicit authorization and redistribution rights as independent policy inputs.
+```sh
+npm run db:migrate
+```
+
+This adds the `discovery_candidates` and `discovery_runs` tables. It does not change existing source approval or publication behavior.
+
+## Review and onboarding workflow
+
+1. Run discovery manually in Admin → Discovery, or enable the scheduled worker.
+2. Inspect candidate URL, detected ATS provider, board token, and recorded evidence.
+3. Save a review note and choose identified, review-required, or rejected.
+4. For an identified candidate, verify the employer and obtain evidence that explicitly permits the intended access, storage, attribution, display, and redistribution.
+5. Register the source in Admin → Sources. It is created disabled and pending approval.
+6. Complete the permitted fields, application hostnames, usage conditions, removal policy, and any authorization expiry.
+7. Approve the source only after the employer is verified and the actual permission scope is documented. Run a source test before enabling scheduled ingestion.
+8. Job moderation/publication remains a separate decision.
+
+**A publicly reachable URL is not proof of permission to scrape, store, or republish its content.** Discovery candidates cannot be enabled or published directly.
+
+## Security boundaries and current limitations
+
+- Only HTTPS URLs with public-looking DNS hostnames and standard HTTPS ports are accepted by the seed classifier.
+- Candidate discovery does not perform network requests, follow redirects, or fetch robots.txt. These controls must be implemented with DNS/IP pinning and redirect validation before network-backed crawling is introduced.
+- No discovered candidate is automatically registered as an approved source.
+- The current manual run endpoint bypasses the scheduled interval but still uses the same 200-seed cap and URL validation.
+- Use the existing source registry and ingestion pipeline; do not create a parallel scraper or publication path.
