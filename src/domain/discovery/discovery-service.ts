@@ -47,7 +47,7 @@ export async function runConfiguredSeedDiscovery(seedList: string, intervalMinut
           set: {
             provider: candidate.provider, boardToken: candidate.boardToken,
             evidence: combined, lastObservedAt: now,
-            state: sql`CASE WHEN ${s.discoveryCandidates.state} = 'REJECTED' THEN 'REJECTED' ELSE ${candidate.state} END`,
+            state: sql`CASE WHEN ${s.discoveryCandidates.state} = 'REJECTED' OR ${s.discoveryCandidates.reviewedAt} IS NOT NULL THEN ${s.discoveryCandidates.state} ELSE ${candidate.state} END`,
             requiresPermissionReview: true,
           },
         });
