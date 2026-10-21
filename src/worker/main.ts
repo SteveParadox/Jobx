@@ -13,7 +13,8 @@ import { log } from '@/lib/log';
 import { queueConnection } from '@/lib/queue';
 import { Queue, Worker } from 'bullmq';
 import { and, eq, inArray, lt } from 'drizzle-orm';
-import { tickIngestion } from './ingestion';\nimport { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
+import { tickIngestion } from './ingestion';
+import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
 assertRuntime();
 const connection = queueConnection();
 const queue = new Queue('careeratlas', {
@@ -32,7 +33,9 @@ async function tick() {
   await generateDigests();
   await pruneRawPayloads();
   await pruneSearchHistory();
-  await tickIngestion(queue);\n  if (env.JOB_DISCOVERY_ENABLED) await runConfiguredSeedDiscovery(env.JOB_DISCOVERY_SEEDS ?? '');
+  await tickIngestion(queue);
+  if (env.JOB_DISCOVERY_ENABLED)
+    await runConfiguredSeedDiscovery(env.JOB_DISCOVERY_SEEDS ?? '', env.JOB_DISCOVERY_INTERVAL_MINUTES);
   const pending = await db
     .select({ id: s.deliveries.id })
     .from(s.deliveries)
