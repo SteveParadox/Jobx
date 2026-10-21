@@ -45,7 +45,7 @@ This adds the `discovery_candidates` and `discovery_runs` tables. It does not ch
 - Discovery does not create employer records or mark employers as verified.
 - Public DNS answers are checked and the chosen address is pinned for each HTTPS request. All returned DNS answers must be public unicast addresses.
 - Redirects must remain on the original host. The crawler does not fetch external ATS pages while crawling employer domains.
-- Requests have a 6-second timeout and 1 MB response limit; each seed is limited to a small number of pages and sitemaps. A run is limited to 1,000 persisted candidates.
+- Requests have a 6-second total deadline and 1 MB response limit. Requests to the same hostname are paced at least one second apart within a worker process; each seed is limited to a small number of pages and sitemaps. A run is limited to 1,000 persisted candidates.
 - A crawl that cannot safely check `robots.txt` is rejected rather than proceeding blindly.
 - The crawler does not extract job listings or publish records. Actual ingestion continues through the existing source adapter, permission approval, source test, ingestion task, and moderation paths.
 - Discovery is not a substitute for verifying source permissions, provider terms, data retention rules, or employer identity.
