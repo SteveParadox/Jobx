@@ -36,7 +36,7 @@ const schema = z.object({
   GOOGLE_CLIENT_EMAIL: optional,
   GOOGLE_PRIVATE_KEY: optional,
   ANALYTICS_ENABLED: bool,
-  SOURCE_BROWSER_ENABLED: bool,
+  SOURCE_BROWSER_ENABLED: bool,\n  JOB_DISCOVERY_ENABLED: bool,\n  JOB_DISCOVERY_SEEDS: optional,
 });
 export const env = schema.parse(process.env);
 export const isProduction = env.APP_ENV === 'production';
