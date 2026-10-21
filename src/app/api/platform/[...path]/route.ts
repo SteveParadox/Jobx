@@ -36,6 +36,7 @@ import {
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
+import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
 import { removeResume, queueResumeCleanup, resumeAccess } from '@/integrations/storage';
@@ -451,6 +452,17 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       if (method === 'GET' && path === 'admin/overview') return adminOverview(actor);
       if (method === 'GET' && path === 'admin/ingestion')
         return { ...(await ingestionOverview()), queue: await queueHealth() };
+      if (method === 'GET' && path === 'admin/discovery') {
+        const [candidates, runs] = await Promise.all([
+          db.select().from(s.discoveryCandidates).orderBy(desc(s.discoveryCandidates.lastObservedAt)).limit(200),
+          db.select().from(s.discoveryRuns).orderBy(desc(s.discoveryRuns.startedAt)).limit(50),
+        ]);
+        return { candidates, runs, configured: Boolean(env.JOB_DISCOVERY_ENABLED && env.JOB_DISCOVERY_SEEDS) };
+      }
+      if (method === 'POST' && path === 'admin/discovery/run') {
+        const data = await body(req, z.object({ seeds: z.string().max(10000).optional() }));
+        return runConfiguredSeedDiscovery(data.seeds ?? env.JOB_DISCOVERY_SEEDS ?? '', 15, new Date());
+      }
       if (
         method === 'POST' &&
         p[1] === 'ingestion-tasks' &&
