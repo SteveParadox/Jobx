@@ -81,6 +81,32 @@ export function DiscoveryWorkspace() {
     finally { setBusy(false); }
   }
 
+  async function createSourceDraft(candidate: Candidate, form: HTMLFormElement) {
+    const data = new FormData(form);
+    const permittedFields = data.getAll('permittedFields').map(String);
+    const applicationHostnames = String(data.get('applicationHostnames') ?? '')
+      .split(/[\\n,;]+/).map((value) => value.trim().toLowerCase()).filter(Boolean);
+    setBusy(true); setMessage(''); setError('');
+    try {
+      await api('admin/discovery/' + candidate.id + '/source-draft', 'POST', {
+        employerId: String(data.get('employerId') ?? '').trim(),
+        permissionEvidence: String(data.get('permissionEvidence') ?? '').trim(),
+        attribution: String(data.get('attribution') ?? '').trim(),
+        permittedFields,
+        removalPolicy: String(data.get('removalPolicy') ?? '').trim(),
+        intervalMinutes: Number(data.get('intervalMinutes') ?? 60),
+        applicationHostnames,
+        usageConditions: String(data.get('usageConditions') ?? '').trim(),
+        authorizationExpiresAt: data.get('authorizationExpiresAt')
+          ? new Date(String(data.get('authorizationExpiresAt'))).toISOString()
+          : null,
+      });
+      setMessage('Disabled source draft created. It still requires source approval and a successful source test.');
+      await refresh();
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return (
     <div className="stack">
       <section className="panel">
@@ -151,6 +177,29 @@ export function DiscoveryWorkspace() {
               </label>
               <Button variant="secondary" disabled={busy}>Save review</Button>
             </form>
+            {candidate.state === 'IDENTIFIED' && candidate.provider && candidate.boardToken && (
+              <details className="panel">
+                <summary>Create disabled source draft</summary>
+                <p>Only use this after verifying the employer and recording explicit permission. Draft creation does not approve or enable ingestion.</p>
+                <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void createSourceDraft(candidate, event.currentTarget); }}>
+                  <label>Verified employer ID<input name="employerId" required pattern="[0-9a-fA-F-]{36}" placeholder="Employer UUID" /></label>
+                  <label>Permission evidence<textarea name="permissionEvidence" required minLength={20} maxLength={10000} placeholder="Link or record documenting explicit access, storage, and redistribution rights" /></label>
+                  <label>Attribution<input name="attribution" required minLength={2} maxLength={500} defaultValue={candidate.hostname} /></label>
+                  <label>Application hostnames<input name="applicationHostnames" required placeholder="jobs.example.com, careers.example.com" /></label>
+                  <label>Usage conditions<textarea name="usageConditions" required minLength={10} maxLength={5000} placeholder="Permitted fields, display, storage, attribution, and redistribution scope" /></label>
+                  <label>Removal policy<textarea name="removalPolicy" required minLength={10} maxLength={2000} placeholder="How removed, expired, or unauthorized listings will be handled" /></label>
+                  <label>Sync interval (minutes)<input name="intervalMinutes" type="number" min={15} max={10080} defaultValue={60} required /></label>
+                  <label>Authorization expiry (optional)<input name="authorizationExpiresAt" type="date" /></label>
+                  <fieldset>
+                    <legend>Permitted fields</legend>
+                    {['title', 'description', 'location', 'application', 'date', 'salary', 'skills', 'employment', 'experience'].map((field) => (
+                      <label key={field}><input type="checkbox" name="permittedFields" value={field} defaultChecked={['title', 'description', 'location', 'application'].includes(field)} /> {field}</label>
+                    ))}
+                  </fieldset>
+                  <Button disabled={busy}>Create pending source draft</Button>
+                </form>
+              </details>
+            )}
           </article>
         ))}
       </section>
