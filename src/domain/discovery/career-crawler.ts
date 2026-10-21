@@ -12,6 +12,8 @@ const TIMEOUT_MS = 6_000;
 const MAX_REDIRECTS = 3;
 const MAX_PAGES_PER_SEED = 3;
 const MAX_SITEMAPS_PER_SEED = 1;
+const MIN_HOST_INTERVAL_MS = 1000;
+const lastRequestAt = new Map<string, number>();
 const USER_AGENT = 'CareerAtlasSourceDiscovery/1.0';
 
 type SafeResponse = { url: URL; status: number; headers: IncomingHttpHeaders; body: string };
@@ -26,15 +28,21 @@ function publicAddress(address: string): boolean {
 
 /** HTTPS request whose socket lookup is pinned to an address checked immediately before connect. */
 async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeResponse> {
+  const last = lastRequestAt.get(url.hostname) ?? 0;
+  const delay = MIN_HOST_INTERVAL_MS - (Date.now() - last);
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  lastRequestAt.set(url.hostname, Date.now());
   const answers = await lookup(url.hostname, { all: true, verbatim: true });
   if (!answers.length || answers.some((answer) => !publicAddress(answer.address)))
     throw new Error('DNS resolved to an address outside the public unicast range');
   const selected = answers[0];
   return await new Promise((resolve, reject) => {
     let settled = false;
+    let deadline: NodeJS.Timeout | undefined;
     const finishError = (error: Error) => {
       if (settled) return;
       settled = true;
+      if (deadline) clearTimeout(deadline);
       reject(error);
     };
     const req = request(url, {
@@ -59,6 +67,7 @@ async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeRespon
       res.on('end', () => {
         if (settled) return;
         settled = true;
+        if (deadline) clearTimeout(deadline);
         resolve({
           url,
           status: res.statusCode ?? 0,
@@ -68,6 +77,7 @@ async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeRespon
       });
     });
     req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error('Discovery request timed out')));
+    deadline = setTimeout(() => req.destroy(new Error('Discovery request exceeded its total time budget')), TIMEOUT_MS);
     req.on('error', finishError);
     req.end();
   });
