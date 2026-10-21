@@ -2,10 +2,10 @@ import { getDb } from '@/db';
 import * as s from '@/db/schema';
 import { candidateFromUrl } from './source-classifier';
 import { log } from '@/lib/log';
-import { desc, eq, gte } from 'drizzle-orm';
+import { desc, eq, gte, sql } from 'drizzle-orm';
 
 /** Bounded operator-seed discovery. Candidate discovery never grants permission. */
-export async function runConfiguredSeedDiscovery(seedList: string, intervalMinutes = 60, now = new Date()) {
+export async function runConfiguredSeedDiscovery(seedList: string, intervalMinutes = 60, now = new Date(), force = false) {
   const seeds = [...new Set(seedList.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean))].slice(0, 200);
   if (!seeds.length) return { skipped: true, reason: 'no_configured_seeds', seedsSeen: 0 };
   const db = getDb();
@@ -15,7 +15,7 @@ export async function runConfiguredSeedDiscovery(seedList: string, intervalMinut
     .where(gte(s.discoveryRuns.startedAt, cutoff))
     .orderBy(desc(s.discoveryRuns.startedAt))
     .limit(1);
-  if (recentRun) return { skipped: true, reason: 'discovery_interval_not_elapsed', runId: recentRun.id };
+  if (recentRun && !force) return { skipped: true, reason: 'discovery_interval_not_elapsed', runId: recentRun.id };
 
   const [run] = await db.insert(s.discoveryRuns).values({
     trigger: 'configured_seeds', status: 'running', seedsSeen: seeds.length,
@@ -28,7 +28,7 @@ export async function runConfiguredSeedDiscovery(seedList: string, intervalMinut
       try {
         const candidate = candidateFromUrl(seed, 'seed_domain', now.toISOString());
         const [existing] = await db.select({
-          id: s.discoveryCandidates.id, evidence: s.discoveryCandidates.evidence,
+          id: s.discoveryCandidates.id, evidence: s.discoveryCandidates.evidence, state: s.discoveryCandidates.state,
         }).from(s.discoveryCandidates)
           .where(eq(s.discoveryCandidates.canonicalUrl, candidate.canonicalUrl)).limit(1);
         const evidence = Array.isArray(existing?.evidence) ? existing.evidence as Array<Record<string, unknown>> : [];
@@ -46,7 +46,8 @@ export async function runConfiguredSeedDiscovery(seedList: string, intervalMinut
           target: s.discoveryCandidates.canonicalUrl,
           set: {
             provider: candidate.provider, boardToken: candidate.boardToken,
-            evidence: combined, lastObservedAt: now, state: candidate.state,
+            evidence: combined, lastObservedAt: now,
+            state: sql`CASE WHEN ${s.discoveryCandidates.state} = 'REJECTED' THEN 'REJECTED' ELSE ${candidate.state} END`,
             requiresPermissionReview: true,
           },
         });
