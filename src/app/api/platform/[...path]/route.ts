@@ -36,6 +36,7 @@ import {
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
+import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
 import { removeResume, queueResumeCleanup, resumeAccess } from '@/integrations/storage';
@@ -451,6 +452,75 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       if (method === 'GET' && path === 'admin/overview') return adminOverview(actor);
       if (method === 'GET' && path === 'admin/ingestion')
         return { ...(await ingestionOverview()), queue: await queueHealth() };
+      if (method === 'GET' && path === 'admin/discovery') {
+        const [candidates, runs] = await Promise.all([
+          db.select().from(s.discoveryCandidates).orderBy(desc(s.discoveryCandidates.lastObservedAt)).limit(200),
+          db.select().from(s.discoveryRuns).orderBy(desc(s.discoveryRuns.startedAt)).limit(50),
+        ]);
+        return { candidates, runs, configured: Boolean(env.JOB_DISCOVERY_ENABLED && env.JOB_DISCOVERY_SEEDS) };
+      }
+      if (method === 'POST' && path === 'admin/discovery/run') {
+        const data = await body(req, z.object({ seeds: z.string().max(10000).optional() }));
+        return runConfiguredSeedDiscovery(data.seeds ?? env.JOB_DISCOVERY_SEEDS ?? '', 15, new Date(), true);
+      }
+      if (method === 'POST' && p[1] === 'discovery' && p[3] === 'source-draft' && p.length === 4) {
+        const data = await body(req, z.object({
+          employerId: z.uuid(),
+          permissionEvidence: z.string().trim().min(20).max(10000),
+          attribution: z.string().trim().min(2).max(500),
+          permittedFields: z.array(z.enum(['title', 'description', 'location', 'application', 'date', 'salary', 'skills', 'employment', 'experience'])).min(1),
+          removalPolicy: z.string().trim().min(10).max(2000),
+          intervalMinutes: z.number().int().min(15).max(10080).default(60),
+          applicationHostnames: z.array(z.string().trim().toLowerCase().min(3).max(250)).min(1).max(20),
+          usageConditions: z.string().trim().min(10).max(5000),
+          authorizationExpiresAt: z.iso.datetime().nullable().optional(),
+        }));
+        const candidate = requireValue(
+          (await db.select().from(s.discoveryCandidates).where(eq(s.discoveryCandidates.id, uuid(p[2]))))[0],
+        );
+        if (candidate.state !== 'IDENTIFIED' || !candidate.reviewedAt)
+          throw new AppError(409, 'Identify and review the candidate before creating a source draft');
+        if (!candidate.provider || !candidate.boardToken)
+          throw new AppError(409, 'This candidate has no supported ATS board identity; use the authorized manual-source workflow');
+        const employer = requireValue(
+          (await db.select().from(s.employers).where(eq(s.employers.id, data.employerId)))[0],
+        );
+        if (employer.disabled || employer.verificationStatus !== 'verified')
+          throw new AppError(409, 'Verify the employer before creating a source draft');
+        const source = await registerSource(actor, {
+          ...data,
+          provider: candidate.provider,
+          boardToken: candidate.boardToken,
+          enabled: false,
+          autoPublish: false,
+        });
+        await db.transaction(async (tx) => {
+          await audit(tx, actor.id, 'discovery.source_draft_created', source.id, {
+            candidateId: candidate.id,
+            employerId: employer.id,
+            provider: candidate.provider,
+          });
+        });
+        return { source, enabled: false, approvalStatus: 'pending', candidateId: candidate.id };
+      }
+      if (method === 'PATCH' && p[1] === 'discovery' && p.length === 3) {
+        const data = await body(req, z.object({
+          state: z.enum(['IDENTIFIED', 'REVIEW_REQUIRED', 'REJECTED']),
+          note: z.string().trim().min(10).max(2000),
+        }));
+        return db.transaction(async (tx) => {
+          const [candidate] = await tx.update(s.discoveryCandidates).set({
+            state: data.state,
+            requiresPermissionReview: true,
+            reviewedAt: new Date(),
+            reviewedBy: actor.id,
+            reviewNote: data.note,
+          }).where(eq(s.discoveryCandidates.id, uuid(p[2]))).returning({ id: s.discoveryCandidates.id });
+          if (!candidate) throw new AppError(404, 'Discovery candidate not found');
+          await audit(tx, actor.id, 'discovery.candidate_reviewed', candidate.id, { state: data.state, note: data.note });
+          return { reviewed: true, id: candidate.id, state: data.state };
+        });
+      }
       if (
         method === 'POST' &&
         p[1] === 'ingestion-tasks' &&
