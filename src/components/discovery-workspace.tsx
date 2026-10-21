@@ -114,7 +114,7 @@ export function DiscoveryWorkspace() {
         <p>
           Discoveries create a review queue only. They never grant source permission, enable
           ingestion, or publish jobs. Supply employer career pages or known ATS board URLs, one per
-          line. HTTPS public hostnames only; up to 200 unique seeds per run.
+          line. HTTPS public hostnames only; up to 25 unique seeds per run.
         </p>
         <div className="stats">
           <div className="stat"><strong>{snapshot?.candidates.length ?? '—'}</strong><span>Recent candidates</span></div>
