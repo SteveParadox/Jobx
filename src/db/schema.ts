@@ -650,3 +650,41 @@ export const developmentEmails = pgTable('development_emails', {
   dedupeKey: text('dedupe_key').notNull().unique(),
   createdAt: time('created_at'),
 });
+
+
+/** Discovered candidates are not authorized sources. Approval remains a separate workflow. */
+export const discoveryCandidates = pgTable(
+  'discovery_candidates',
+  {
+    id: id(),
+    canonicalUrl: text('canonical_url').notNull().unique(),
+    hostname: text('hostname').notNull(),
+    provider: text('provider'),
+    boardToken: text('board_token'),
+    state: text('state').notNull().default('DISCOVERED'),
+    requiresPermissionReview: boolean('requires_permission_review').notNull().default(true),
+    evidence: jsonb('evidence').notNull().default([]),
+    firstDiscoveredAt: time('first_discovered_at'),
+    lastObservedAt: time('last_observed_at'),
+    nextCheckAt: timestamp('next_check_at', { withTimezone: true }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewedBy: text('reviewed_by').references(() => user.id, { onDelete: 'set null' }),
+    reviewNote: text('review_note'),
+  },
+  (t) => [
+    index('discovery_candidates_state_idx').on(t.state, t.lastObservedAt),
+    index('discovery_candidates_hostname_idx').on(t.hostname),
+  ],
+);
+export const discoveryRuns = pgTable('discovery_runs', {
+  id: id(),
+  trigger: text('trigger').notNull(),
+  status: text('status').notNull().default('running'),
+  seedsSeen: integer('seeds_seen').notNull().default(0),
+  candidatesFound: integer('candidates_found').notNull().default(0),
+  candidatesUpdated: integer('candidates_updated').notNull().default(0),
+  rejected: integer('rejected').notNull().default(0),
+  error: text('error'),
+  startedAt: time('started_at'),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+});
