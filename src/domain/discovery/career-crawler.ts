@@ -10,8 +10,8 @@ import { candidateFromUrl, detectAts, resolveSameHostLink, type SourceCandidate 
 const MAX_BYTES = 1_000_000;
 const TIMEOUT_MS = 6_000;
 const MAX_REDIRECTS = 3;
-const MAX_PAGES_PER_SEED = 5;
-const MAX_SITEMAPS_PER_SEED = 3;
+const MAX_PAGES_PER_SEED = 3;
+const MAX_SITEMAPS_PER_SEED = 1;
 const USER_AGENT = 'CareerAtlasSourceDiscovery/1.0';
 
 type SafeResponse = { url: URL; status: number; headers: IncomingHttpHeaders; body: string };
