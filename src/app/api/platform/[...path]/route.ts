@@ -461,7 +461,25 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       }
       if (method === 'POST' && path === 'admin/discovery/run') {
         const data = await body(req, z.object({ seeds: z.string().max(10000).optional() }));
-        return runConfiguredSeedDiscovery(data.seeds ?? env.JOB_DISCOVERY_SEEDS ?? '', 15, new Date());
+        return runConfiguredSeedDiscovery(data.seeds ?? env.JOB_DISCOVERY_SEEDS ?? '', 15, new Date(), true);
+      }
+      if (method === 'PATCH' && p[1] === 'discovery' && p.length === 3) {
+        const data = await body(req, z.object({
+          state: z.enum(['IDENTIFIED', 'REVIEW_REQUIRED', 'REJECTED']),
+          note: z.string().trim().min(10).max(2000),
+        }));
+        return db.transaction(async (tx) => {
+          const [candidate] = await tx.update(s.discoveryCandidates).set({
+            state: data.state,
+            requiresPermissionReview: true,
+            reviewedAt: new Date(),
+            reviewedBy: actor.id,
+            reviewNote: data.note,
+          }).where(eq(s.discoveryCandidates.id, uuid(p[2]))).returning({ id: s.discoveryCandidates.id });
+          if (!candidate) throw new AppError(404, 'Discovery candidate not found');
+          await audit(tx, actor.id, 'discovery.candidate_reviewed', candidate.id, { state: data.state, note: data.note });
+          return { reviewed: true, id: candidate.id, state: data.state };
+        });
       }
       if (
         method === 'POST' &&
