@@ -2,7 +2,7 @@ import { getDb } from '@/db';
 import * as s from '@/db/schema';
 import { crawlCareerSeed } from './career-crawler';
 import { log } from '@/lib/log';
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 
 const MAX_SEEDS = 25;
 const MAX_CANDIDATES_PER_RUN = 1000;
@@ -21,6 +21,10 @@ export async function runConfiguredSeedDiscovery(
   const db = getDb();
   const interval = Math.max(15, Math.min(MAX_INTERVAL_MINUTES, intervalMinutes));
   const cutoff = new Date(now.getTime() - interval * 60_000);
+  const staleRunCutoff = new Date(now.getTime() - 30 * 60_000);
+  await db.update(s.discoveryRuns).set({
+    status: 'failed', error: 'Discovery run exceeded the 30-minute safety window', finishedAt: now,
+  }).where(and(eq(s.discoveryRuns.status, 'running'), lt(s.discoveryRuns.startedAt, staleRunCutoff)));
   const [runningRun] = await db.select({ id: s.discoveryRuns.id })
     .from(s.discoveryRuns)
     .where(eq(s.discoveryRuns.status, 'running'))
