@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from './actions';
 import { Button, Notice } from './ui';
 
@@ -51,7 +51,7 @@ export function DiscoveryWorkspace() {
   }
   useEffect(() => { void Promise.resolve().then(refresh); }, []);
 
-  async function runDiscovery(event: React.FormEvent<HTMLFormElement>) {
+  async function runDiscovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setMessage(''); setError('');
     try {
