@@ -12,7 +12,7 @@ const TIMEOUT_MS = 6_000;
 const MAX_REDIRECTS = 3;
 const MAX_PAGES_PER_SEED = 5;
 const MAX_SITEMAPS_PER_SEED = 3;
-const USER_AGENT = 'CareerAtlasSourceDiscovery/1.0 (+https://careeratlas.example/source-discovery)';
+const USER_AGENT = 'CareerAtlasSourceDiscovery/1.0';
 
 type SafeResponse = { url: URL; status: number; headers: IncomingHttpHeaders; body: string };
 
@@ -73,7 +73,7 @@ async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeRespon
   });
 }
 
-async function safeGet(input: URL): Promise<SafeResponse> {
+async function safeGet(input: URL, expectedHostname = input.hostname): Promise<SafeResponse> {
   let current = new URL(input);
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
     if (current.protocol !== 'https:' || current.username || current.password || (current.port && current.port !== '443'))
@@ -84,6 +84,7 @@ async function safeGet(input: URL): Promise<SafeResponse> {
     if (!location) throw new Error('Redirect did not include a location');
     if (redirect === MAX_REDIRECTS) throw new Error('Redirect limit exceeded');
     const next = new URL(location, current);
+    if (next.hostname.toLowerCase() !== expectedHostname.toLowerCase()) throw new Error('Cross-host redirects are not followed during discovery');
     if (next.protocol !== 'https:' || next.username || next.password)
       throw new Error('Unsafe redirect target rejected');
     current = next;
@@ -91,7 +92,7 @@ async function safeGet(input: URL): Promise<SafeResponse> {
   throw new Error('Redirect limit exceeded');
 }
 
-function isCandidatePath(url: URL): boolean {
+export function isCandidatePath(url: URL): boolean {
   return /(?:career|jobs?|openings?|vacanc|recruit|work-with-us|join-us|positions?)/i.test(url.pathname);
 }
 
@@ -103,7 +104,7 @@ function allowedByRobots(robotsUrl: string, content: string, target: URL): boole
   }
 }
 
-function locationsFromSitemap(xml: string, base: URL): URL[] {
+export function locationsFromSitemap(xml: string, base: URL): URL[] {
   const $ = load(xml, { xml: true });
   const found: URL[] = [];
   $('loc').each((_index, element) => {
@@ -139,7 +140,7 @@ export async function crawlCareerSeed(seedInput: string, now = new Date()): Prom
   const robotsUrl = new URL('/robots.txt', seed.origin);
   let robotsText = '';
   try {
-    const robots = await safeGet(robotsUrl);
+    const robots = await safeGet(robotsUrl, seed.hostname);
     if (robots.status >= 200 && robots.status < 300) robotsText = robots.body;
     else if (robots.status !== 404 && robots.status !== 410) throw new Error('robots.txt could not be checked safely');
   } catch (error) {
@@ -166,7 +167,7 @@ export async function crawlCareerSeed(seedInput: string, now = new Date()): Prom
     seenPages.add(target.toString());
     if (target.hostname !== seed.hostname || !allowedByRobots(robotsUrl.toString(), robotsText, target)) continue;
     let response: SafeResponse;
-    try { response = await safeGet(target); } catch { continue; }
+    try { response = await safeGet(target, seed.hostname); } catch { continue; }
     if (response.status < 200 || response.status >= 300) continue;
     const type = String(response.headers['content-type'] ?? '').toLowerCase();
     if (!type.includes('html') && !/\.(?:html?|xhtml)(?:$|\?)/i.test(target.pathname)) continue;
@@ -196,7 +197,7 @@ export async function crawlCareerSeed(seedInput: string, now = new Date()): Prom
     const sitemapUrl = new URL(sitemapString);
     if (!allowedByRobots(robotsUrl.toString(), robotsText, sitemapUrl)) continue;
     try {
-      const response = await safeGet(sitemapUrl);
+      const response = await safeGet(sitemapUrl, seed.hostname);
       if (response.status < 200 || response.status >= 300) continue;
       const locations = locationsFromSitemap(response.body, seed);
       for (const url of locations) {
