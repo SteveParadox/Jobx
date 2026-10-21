@@ -18,7 +18,7 @@ JOB_DISCOVERY_SEEDS=https://example.com/careers,https://jobs.ashbyhq.com/example
 JOB_DISCOVERY_INTERVAL_MINUTES=60
 ```
 
-The seed list accepts newline, comma, or semicolon separators. At most 200 unique seeds are accepted per run and at most 1,000 candidates are processed per run. Each seed crawl is bounded to a small number of pages and sitemaps. The interval must be between 15 minutes and 7 days. Discovery is disabled by default.
+The seed list accepts newline, comma, or semicolon separators. At most 25 unique seeds are accepted per run and at most 1,000 candidates are processed per run. Runs that remain marked running beyond 30 minutes are marked failed so they cannot block future scans indefinitely. Each seed crawl is bounded to a small number of pages and sitemaps. The interval must be between 15 minutes and 7 days. Discovery is disabled by default.
 
 Run the normal database migration command after deploying the code:
 
