@@ -4,7 +4,7 @@ import { crawlCareerSeed } from './career-crawler';
 import { log } from '@/lib/log';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 
-const MAX_SEEDS = 200;
+const MAX_SEEDS = 25;
 const MAX_CANDIDATES_PER_RUN = 1000;
 const MAX_INTERVAL_MINUTES = 10080;
 
@@ -23,7 +23,7 @@ export async function runConfiguredSeedDiscovery(
   const cutoff = new Date(now.getTime() - interval * 60_000);
   const [runningRun] = await db.select({ id: s.discoveryRuns.id })
     .from(s.discoveryRuns)
-    .where(and(gte(s.discoveryRuns.startedAt, cutoff), eq(s.discoveryRuns.status, 'running')))
+    .where(eq(s.discoveryRuns.status, 'running'))
     .orderBy(desc(s.discoveryRuns.startedAt)).limit(1);
   if (runningRun) return { skipped: true, reason: 'discovery_run_already_in_progress', runId: runningRun.id };
 
