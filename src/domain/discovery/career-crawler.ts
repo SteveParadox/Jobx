@@ -32,6 +32,10 @@ async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeRespon
   const delay = MIN_HOST_INTERVAL_MS - (Date.now() - last);
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   lastRequestAt.set(url.hostname, Date.now());
+  if (lastRequestAt.size > 500) {
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const [host, timestamp] of lastRequestAt) if (timestamp < cutoff) lastRequestAt.delete(host);
+  }
   const answers = await lookup(url.hostname, { all: true, verbatim: true });
   if (!answers.length || answers.some((answer) => !publicAddress(answer.address)))
     throw new Error('DNS resolved to an address outside the public unicast range');
