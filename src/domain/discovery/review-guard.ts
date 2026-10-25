@@ -43,4 +43,24 @@ export async function assertReviewedCandidateCurrent(
       'Discovery candidate review changed; reload and review it again before creating the source draft',
     );
   }
+
+  // Employer verification can change after the route's initial read. Lock and
+  // revalidate it in the source-registration transaction before inserting a draft.
+  const [employer] = await tx
+    .select({
+      id: s.employers.id,
+      disabled: s.employers.disabled,
+      verificationStatus: s.employers.verificationStatus,
+    })
+    .from(s.employers)
+    .where(eq(s.employers.id, expected.employerId))
+    .for('update')
+    .limit(1);
+
+  if (!employer || employer.disabled || employer.verificationStatus !== 'verified') {
+    throw new AppError(
+      409,
+      'Employer verification changed; verify the employer again before creating the source draft',
+    );
+  }
 }
