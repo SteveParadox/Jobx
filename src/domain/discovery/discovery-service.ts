@@ -14,9 +14,13 @@ export async function runConfiguredSeedDiscovery(
   now = new Date(),
   force = false,
 ) {
-  const seeds = [...new Set(seedList.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean))]
-    .slice(0, MAX_SEEDS);
-  if (!seeds.length) return { skipped: true, reason: 'no_configured_seeds', seedsSeen: 0 };
+  const parsedSeeds = [...new Set(seedList.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean))];
+  if (!parsedSeeds.length) return { skipped: true, reason: 'no_configured_seeds', seedsSeen: 0 };
+  if (parsedSeeds.length > MAX_SEEDS)
+    return { skipped: true, reason: 'seed_limit_exceeded', seedsSeen: parsedSeeds.length, maxSeeds: MAX_SEEDS };
+  if (!Number.isFinite(intervalMinutes) || !Number.isInteger(intervalMinutes))
+    return { skipped: true, reason: 'invalid_discovery_interval' };
+  const seeds = parsedSeeds;
 
   const db = getDb();
   const interval = Math.max(15, Math.min(MAX_INTERVAL_MINUTES, intervalMinutes));
