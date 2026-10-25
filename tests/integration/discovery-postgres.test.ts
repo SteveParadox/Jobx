@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as s from '../../src/db/schema';
 import { reserveHostRequestSlot } from '../../src/domain/discovery/career-crawler';
