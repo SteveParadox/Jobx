@@ -89,11 +89,16 @@ async function pauseOwned(tx: Tx, sourceId: string, actorId: string | null, reas
 export async function registerSource(
   actor: Actor,
   input: unknown,
-  additionalAudit?: { action: string; metadata: Record<string, unknown> },
+  additionalAudit?: {
+    action: string;
+    metadata: Record<string, unknown>;
+    validate?: (tx: Tx) => Promise<void>;
+  },
 ) {
   admin(actor);
   const data = values(input);
   return getDb().transaction(async (tx) => {
+    await additionalAudit?.validate?.(tx);
     requireValue(
       (await tx.select().from(s.employers).where(eq(s.employers.id, data.employerId)))[0],
     );
