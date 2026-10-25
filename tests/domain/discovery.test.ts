@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runConfiguredSeedDiscovery } from '../../src/domain/discovery/discovery-service';
+import { requestWithRetry } from '../../src/domain/discovery/career-crawler';
 import {
   candidateFromUrl,
   canonicalizeCandidateUrl,
@@ -80,4 +81,42 @@ describe('permission-aware source discovery primitives', () => {
     expect(mergeCandidateEvidence(a, b).evidence).toHaveLength(2);
     expect(() => mergeCandidateEvidence(a, candidateFromUrl('https://jobs.lever.co/acme'))).toThrow();
   });
+  it('retries transient HTTP failures and succeeds within the attempt limit', async () => {
+    let calls = 0;
+    const result = await requestWithRetry(
+      new URL('https://careers.example.com/robots.txt'),
+      async (url) => {
+        calls++;
+        return {
+          url,
+          status: calls === 1 ? 503 : 200,
+          headers: {},
+          body: '',
+        };
+      },
+      async () => {},
+    );
+
+    expect(calls).toBe(2);
+    expect(result.status).toBe(200);
+  });
+
+  it('does not retry a public-address validation failure', async () => {
+    let calls = 0;
+    const failure = new Error('DNS resolved to an address outside the public unicast range');
+
+    await expect(
+      requestWithRetry(
+        new URL('https://localhost/robots.txt'),
+        async () => {
+          calls++;
+          throw failure;
+        },
+        async () => {},
+      ),
+    ).rejects.toBe(failure);
+
+    expect(calls).toBe(1);
+  });
+
 });
