@@ -513,13 +513,13 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
           boardToken: candidate.boardToken,
           enabled: false,
           autoPublish: false,
-        });
-        await db.transaction(async (tx) => {
-          await audit(tx, actor.id, 'discovery.source_draft_created', source.id, {
+        }, {
+          action: 'discovery.source_draft_created',
+          metadata: {
             candidateId: candidate.id,
             employerId: employer.id,
             provider: candidate.provider,
-          });
+          },
         });
         return { source, enabled: false, approvalStatus: 'pending', candidateId: candidate.id };
       }
