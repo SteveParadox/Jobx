@@ -21,8 +21,10 @@ const MIN_HOST_INTERVAL_MS = 1000;
  * Reserve a per-host request slot in PostgreSQL so independent worker processes
  * share the same crawl budget. The upsert serializes concurrent reservations.
  */
-async function waitForHostBudget(hostname: string): Promise<void> {
-  const now = new Date();
+export async function reserveHostRequestSlot(
+  hostname: string,
+  now = new Date(),
+): Promise<Date> {
   const [reservation] = await getDb()
     .insert(s.sourceHostBudgets)
     .values({ hostname, nextRequestAt: now })
@@ -33,7 +35,14 @@ async function waitForHostBudget(hostname: string): Promise<void> {
       },
     })
     .returning({ nextRequestAt: s.sourceHostBudgets.nextRequestAt });
-  const delay = reservation.nextRequestAt.getTime() - now.getTime();
+  if (!reservation) throw new Error('Could not reserve a discovery request slot');
+  return reservation.nextRequestAt;
+}
+
+async function waitForHostBudget(hostname: string): Promise<void> {
+  const now = new Date();
+  const nextRequestAt = await reserveHostRequestSlot(hostname, now);
+  const delay = nextRequestAt.getTime() - now.getTime();
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
 }
 const USER_AGENT = 'CareerAtlasSourceDiscovery/1.0';
