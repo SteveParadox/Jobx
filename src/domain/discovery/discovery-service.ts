@@ -26,25 +26,35 @@ export async function runConfiguredSeedDiscovery(
   const interval = Math.max(15, Math.min(MAX_INTERVAL_MINUTES, intervalMinutes));
   const cutoff = new Date(now.getTime() - interval * 60_000);
   const staleRunCutoff = new Date(now.getTime() - 30 * 60_000);
-  await db.update(s.discoveryRuns).set({
-    status: 'failed', error: 'Discovery run exceeded the 30-minute safety window', finishedAt: now,
-  }).where(and(eq(s.discoveryRuns.status, 'running'), lt(s.discoveryRuns.startedAt, staleRunCutoff)));
-  const [runningRun] = await db.select({ id: s.discoveryRuns.id })
-    .from(s.discoveryRuns)
-    .where(eq(s.discoveryRuns.status, 'running'))
-    .orderBy(desc(s.discoveryRuns.startedAt)).limit(1);
-  if (runningRun) return { skipped: true, reason: 'discovery_run_already_in_progress', runId: runningRun.id };
 
-  const [recentRun] = await db.select({ id: s.discoveryRuns.id })
-    .from(s.discoveryRuns)
-    .where(gte(s.discoveryRuns.startedAt, cutoff))
-    .orderBy(desc(s.discoveryRuns.startedAt)).limit(1);
-  if (recentRun && !force)
-    return { skipped: true, reason: 'discovery_interval_not_elapsed', runId: recentRun.id };
+  // Serialize the check-and-create section across all workers sharing PostgreSQL.
+  // The transaction-scoped lock is released after the new running row is committed.
+  const startResult = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(731904225)`);
+    await tx.update(s.discoveryRuns).set({
+      status: 'failed', error: 'Discovery run exceeded the 30-minute safety window', finishedAt: now,
+    }).where(and(eq(s.discoveryRuns.status, 'running'), lt(s.discoveryRuns.startedAt, staleRunCutoff)));
+    const [runningRun] = await tx.select({ id: s.discoveryRuns.id })
+      .from(s.discoveryRuns)
+      .where(eq(s.discoveryRuns.status, 'running'))
+      .orderBy(desc(s.discoveryRuns.startedAt)).limit(1);
+    if (runningRun)
+      return { skipped: true as const, reason: 'discovery_run_already_in_progress', runId: runningRun.id };
 
-  const [run] = await db.insert(s.discoveryRuns).values({
-    trigger: force ? 'manual' : 'configured_seeds', status: 'running', seedsSeen: seeds.length,
-  }).returning({ id: s.discoveryRuns.id });
+    const [recentRun] = await tx.select({ id: s.discoveryRuns.id })
+      .from(s.discoveryRuns)
+      .where(gte(s.discoveryRuns.startedAt, cutoff))
+      .orderBy(desc(s.discoveryRuns.startedAt)).limit(1);
+    if (recentRun && !force)
+      return { skipped: true as const, reason: 'discovery_interval_not_elapsed', runId: recentRun.id };
+
+    const [run] = await tx.insert(s.discoveryRuns).values({
+      trigger: force ? 'manual' : 'configured_seeds', status: 'running', seedsSeen: seeds.length,
+    }).returning({ id: s.discoveryRuns.id });
+    return { run };
+  });
+  if ('skipped' in startResult) return startResult;
+  const run = startResult.run;
 
   let found = 0;
   let updated = 0;
