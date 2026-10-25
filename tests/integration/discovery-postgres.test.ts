@@ -18,7 +18,9 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
   });
 
   beforeEach(async () => {
-    await ctx.client.exec('TRUNCATE discovery_candidates, source_host_budgets, employers RESTART IDENTITY CASCADE');
+    await ctx.client.exec(
+      'TRUNCATE discovery_candidates, source_host_budgets, employers RESTART IDENTITY CASCADE',
+    );
   });
 
   it('assigns unique, ordered request slots when workers reserve one hostname concurrently', async () => {
@@ -41,34 +43,42 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
   });
 
   it('rejects source-draft validation if a candidate review changes while the guard waits for its row lock', async () => {
-    const [employer] = await ctx.db.insert(s.employers).values({
-      name: 'Discovery fixture employer',
-      slug: 'discovery-fixture-employer',
-      website: 'https://careers.example.com',
-      verificationStatus: 'verified',
-    }).returning({ id: s.employers.id });
-    const [candidate] = await ctx.db.insert(s.discoveryCandidates).values({
-      canonicalUrl: 'https://boards.greenhouse.io/fixture',
-      hostname: 'boards.greenhouse.io',
-      provider: 'greenhouse',
-      boardToken: 'fixture',
-      state: 'IDENTIFIED',
-      employerId: employer.id,
-      reviewedAt: new Date(),
-      requiresPermissionReview: true,
-      evidence: [],
-    }).returning({ id: s.discoveryCandidates.id });
+    const [employer] = await ctx.db
+      .insert(s.employers)
+      .values({
+        name: 'Discovery fixture employer',
+        slug: 'discovery-fixture-employer',
+        website: 'https://careers.example.com',
+        verificationStatus: 'verified',
+      })
+      .returning({ id: s.employers.id });
+    const [candidate] = await ctx.db
+      .insert(s.discoveryCandidates)
+      .values({
+        canonicalUrl: 'https://boards.greenhouse.io/fixture',
+        hostname: 'boards.greenhouse.io',
+        provider: 'greenhouse',
+        boardToken: 'fixture',
+        state: 'IDENTIFIED',
+        employerId: employer.id,
+        reviewedAt: new Date(),
+        requiresPermissionReview: true,
+        evidence: [],
+      })
+      .returning({ id: s.discoveryCandidates.id });
 
     const holder = await ctx.pool.connect();
     await holder.query('BEGIN');
     try {
       await holder.query('SELECT id FROM discovery_candidates WHERE id = $1 FOR UPDATE', [candidate.id]);
-      const guard = ctx.db.transaction((tx) => assertReviewedCandidateCurrent(tx, {
-        id: candidate.id,
-        employerId: employer.id,
-        provider: 'greenhouse',
-        boardToken: 'fixture',
-      }));
+      const guard = ctx.db.transaction((tx) =>
+        assertReviewedCandidateCurrent(tx, {
+          id: candidate.id,
+          employerId: employer.id,
+          provider: 'greenhouse',
+          boardToken: 'fixture',
+        }),
+      );
 
       await vi.waitFor(async () => {
         const { rows } = await ctx.pool.query(
