@@ -86,7 +86,11 @@ async function pauseOwned(tx: Tx, sourceId: string, actorId: string | null, reas
       .values({ jobId: job.id, actorId, change: { type: reason, sourceId } });
   }
 }
-export async function registerSource(actor: Actor, input: unknown) {
+export async function registerSource(
+  actor: Actor,
+  input: unknown,
+  additionalAudit?: { action: string; metadata: Record<string, unknown> },
+) {
   admin(actor);
   const data = values(input);
   return getDb().transaction(async (tx) => {
@@ -101,6 +105,8 @@ export async function registerSource(actor: Actor, input: unknown) {
       provider: source.provider,
       hostname: source.approvedHostname,
     });
+    if (additionalAudit)
+      await audit(tx, actor.id, additionalAudit.action, source.id, additionalAudit.metadata);
     return source;
   });
 }
