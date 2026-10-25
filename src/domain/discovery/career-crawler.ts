@@ -114,12 +114,54 @@ async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeRespon
   });
 }
 
+const MAX_REQUEST_ATTEMPTS = 3;
+const MAX_RETRY_DELAY_MS = 5000;
+
+function transientNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = 'code' in error ? String(error.code) : '';
+  return (
+    ['EAI_AGAIN', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code) ||
+    /request timed out|exceeded its total time budget/i.test(error.message)
+  );
+}
+
+function retryDelay(response: SafeResponse | undefined, attempt: number): number {
+  const header = response?.headers['retry-after'];
+  const value = Array.isArray(header) ? header[0] : header;
+  let requested = 250 * 2 ** attempt;
+  if (value) {
+    const seconds = Number(value);
+    const retryAt = Date.parse(value);
+    if (Number.isFinite(seconds) && seconds >= 0) requested = seconds * 1000;
+    else if (Number.isFinite(retryAt)) requested = Math.max(0, retryAt - Date.now());
+  }
+  // Bound server-provided delays and add jitter so independent workers do not
+  // all retry the same host at the same instant.
+  return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, requested)) * (0.75 + Math.random() * 0.5);
+}
+
+async function requestWithRetry(url: URL): Promise<SafeResponse> {
+  for (let attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt++) {
+    let response: SafeResponse | undefined;
+    try {
+      response = await requestPinned(url);
+      const retryableStatus = response.status === 429 || [500, 502, 503, 504].includes(response.status);
+      if (!retryableStatus || attempt === MAX_REQUEST_ATTEMPTS - 1) return response;
+    } catch (error) {
+      if (!transientNetworkFailure(error) || attempt === MAX_REQUEST_ATTEMPTS - 1) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelay(response, attempt)));
+  }
+  throw new Error('Discovery request retry limit exceeded');
+}
+
 async function safeGet(input: URL, expectedHostname = input.hostname): Promise<SafeResponse> {
   let current = new URL(input);
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
     if (current.protocol !== 'https:' || current.username || current.password || (current.port && current.port !== '443'))
       throw new Error('Unsafe URL or redirect rejected');
-    const response = await requestPinned(current);
+    const response = await requestWithRetry(current);
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     const location = response.headers.location;
     if (!location) throw new Error('Redirect did not include a location');
