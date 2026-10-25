@@ -26,6 +26,12 @@ export async function runConfiguredSeedDiscovery(
   const interval = Math.max(15, Math.min(MAX_INTERVAL_MINUTES, intervalMinutes));
   const cutoff = new Date(now.getTime() - interval * 60_000);
   const staleRunCutoff = new Date(now.getTime() - 30 * 60_000);
+  const hostBudgetRetentionCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60_000);
+
+  // Host budgets are only needed while their reservation is recent. Bound table
+  // growth without deleting reservations that are still waiting to be consumed.
+  await db.delete(s.sourceHostBudgets)
+    .where(lt(s.sourceHostBudgets.nextRequestAt, hostBudgetRetentionCutoff));
 
   // Serialize the check-and-create section across all workers sharing PostgreSQL.
   // The transaction-scoped lock is released after the new running row is committed.
@@ -41,9 +47,14 @@ export async function runConfiguredSeedDiscovery(
     if (runningRun)
       return { skipped: true as const, reason: 'discovery_run_already_in_progress', runId: runningRun.id };
 
+    // Only successful runs consume the configured interval. A failed run must
+    // be eligible for the next worker tick rather than suppressing discovery.
     const [recentRun] = await tx.select({ id: s.discoveryRuns.id })
       .from(s.discoveryRuns)
-      .where(gte(s.discoveryRuns.startedAt, cutoff))
+      .where(and(
+        gte(s.discoveryRuns.startedAt, cutoff),
+        eq(s.discoveryRuns.status, 'completed'),
+      ))
       .orderBy(desc(s.discoveryRuns.startedAt)).limit(1);
     if (recentRun && !force)
       return { skipped: true as const, reason: 'discovery_interval_not_elapsed', runId: recentRun.id };
