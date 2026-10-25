@@ -522,6 +522,19 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
             employerId: employer.id,
             provider: candidate.provider,
           },
+          validate: async (tx) => {
+            const [currentCandidate] = await tx.select().from(s.discoveryCandidates)
+              .where(eq(s.discoveryCandidates.id, candidate.id)).for('update').limit(1);
+            if (
+              !currentCandidate ||
+              currentCandidate.state !== 'IDENTIFIED' ||
+              !currentCandidate.reviewedAt ||
+              currentCandidate.employerId !== employer.id ||
+              currentCandidate.provider !== candidate.provider ||
+              currentCandidate.boardToken !== candidate.boardToken
+            )
+              throw new AppError(409, 'Discovery candidate review changed; reload and review it again before creating the source draft');
+          },
         });
         return { source, enabled: false, approvalStatus: 'pending', candidateId: candidate.id };
       }
