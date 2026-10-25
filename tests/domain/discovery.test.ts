@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { runConfiguredSeedDiscovery } from '../../src/domain/discovery/discovery-service';
 import {
   candidateFromUrl,
   canonicalizeCandidateUrl,
@@ -8,6 +9,26 @@ import {
 } from '../../src/domain/discovery/source-classifier';
 
 describe('permission-aware source discovery primitives', () => {
+  it('rejects oversized seed lists instead of silently truncating them', async () => {
+    const seeds = Array.from({ length: 26 }, (_, index) => `https://example-${index}.com`).join('\n');
+    await expect(runConfiguredSeedDiscovery(seeds)).resolves.toMatchObject({
+      skipped: true,
+      reason: 'seed_limit_exceeded',
+      seedsSeen: 26,
+      maxSeeds: 25,
+    });
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 15.5])(
+    'rejects invalid discovery intervals before accessing the database (%s)',
+    async (interval) => {
+      await expect(runConfiguredSeedDiscovery('https://example.com', interval)).resolves.toMatchObject({
+        skipped: true,
+        reason: 'invalid_discovery_interval',
+      });
+    },
+  );
+
   it.each([
     ['https://boards.greenhouse.io/acme', 'greenhouse', 'acme'],
     ['https://jobs.lever.co/acme', 'lever', 'acme'],
