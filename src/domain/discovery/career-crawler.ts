@@ -1,4 +1,7 @@
 import { lookup } from 'node:dns/promises';
+import { getDb } from '@/db';
+import * as s from '@/db/schema';
+import { sql } from 'drizzle-orm';
 import { request } from 'node:https';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { LookupFunction } from 'node:dns';
@@ -13,7 +16,26 @@ const MAX_REDIRECTS = 3;
 const MAX_PAGES_PER_SEED = 3;
 const MAX_SITEMAPS_PER_SEED = 1;
 const MIN_HOST_INTERVAL_MS = 1000;
-const lastRequestAt = new Map<string, number>();
+
+/**
+ * Reserve a per-host request slot in PostgreSQL so independent worker processes
+ * share the same crawl budget. The upsert serializes concurrent reservations.
+ */
+async function waitForHostBudget(hostname: string): Promise<void> {
+  const now = new Date();
+  const [reservation] = await getDb()
+    .insert(s.sourceHostBudgets)
+    .values({ hostname, nextRequestAt: now })
+    .onConflictDoUpdate({
+      target: s.sourceHostBudgets.hostname,
+      set: {
+        nextRequestAt: sql`GREATEST(${s.sourceHostBudgets.nextRequestAt}, ${now}) + INTERVAL '1 second'`,
+      },
+    })
+    .returning({ nextRequestAt: s.sourceHostBudgets.nextRequestAt });
+  const delay = reservation.nextRequestAt.getTime() - now.getTime();
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+}
 const USER_AGENT = 'CareerAtlasSourceDiscovery/1.0';
 
 type SafeResponse = { url: URL; status: number; headers: IncomingHttpHeaders; body: string };
@@ -28,14 +50,7 @@ function publicAddress(address: string): boolean {
 
 /** HTTPS request whose socket lookup is pinned to an address checked immediately before connect. */
 async function requestPinned(url: URL, maxBytes = MAX_BYTES): Promise<SafeResponse> {
-  const last = lastRequestAt.get(url.hostname) ?? 0;
-  const delay = MIN_HOST_INTERVAL_MS - (Date.now() - last);
-  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-  lastRequestAt.set(url.hostname, Date.now());
-  if (lastRequestAt.size > 500) {
-    const cutoff = Date.now() - 10 * 60_000;
-    for (const [host, timestamp] of lastRequestAt) if (timestamp < cutoff) lastRequestAt.delete(host);
-  }
+  await waitForHostBudget(url.hostname);
   const answers = await lookup(url.hostname, { all: true, verbatim: true });
   if (!answers.length || answers.some((answer) => !publicAddress(answer.address)))
     throw new Error('DNS resolved to an address outside the public unicast range');
