@@ -138,7 +138,10 @@ function retryDelay(response: SafeResponse | undefined, attempt: number): number
   }
   // Bound server-provided delays and add jitter so independent workers do not
   // all retry the same host at the same instant.
-  return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, requested)) * (0.75 + Math.random() * 0.5);
+  return Math.min(
+    MAX_RETRY_DELAY_MS,
+    Math.min(MAX_RETRY_DELAY_MS, Math.max(0, requested)) * (0.75 + Math.random() * 0.5),
+  );
 }
 
 async function requestWithRetry(url: URL): Promise<SafeResponse> {
