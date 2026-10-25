@@ -34,8 +34,20 @@ async function tick() {
   await pruneRawPayloads();
   await pruneSearchHistory();
   await tickIngestion(queue);
-  if (env.JOB_DISCOVERY_ENABLED)
-    await runConfiguredSeedDiscovery(env.JOB_DISCOVERY_SEEDS ?? '', env.JOB_DISCOVERY_INTERVAL_MINUTES);
+  if (env.JOB_DISCOVERY_ENABLED) {
+    try {
+      await runConfiguredSeedDiscovery(
+        env.JOB_DISCOVERY_SEEDS ?? '',
+        env.JOB_DISCOVERY_INTERVAL_MINUTES,
+      );
+    } catch (error) {
+      // Discovery is auxiliary: a transient crawl or persistence failure must not
+      // prevent notifications, indexing, and the worker heartbeat from progressing.
+      log('discovery_tick_failed', {
+        error: error instanceof Error ? error.message.slice(0, 500) : 'Unknown discovery failure',
+      });
+    }
+  }
   const pending = await db
     .select({ id: s.deliveries.id })
     .from(s.deliveries)
