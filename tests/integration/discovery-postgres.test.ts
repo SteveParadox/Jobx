@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as s from '../../src/db/schema';
 import { reserveHostRequestSlot } from '../../src/domain/discovery/career-crawler';
+import { runConfiguredSeedDiscovery } from '../../src/domain/discovery/discovery-service';
 import { assertReviewedCandidateCurrent } from '../../src/domain/discovery/review-guard';
 import { registerSource } from '../../src/domain/source-management';
 import { testPostgresDatabase } from '../postgres';
@@ -257,6 +258,37 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))(
       expect(source.autoPublish).toBe(false);
       expect(source.approvalStatus).toBe('pending');
       expect(source.employerId).toBe(employer.id);
+    });
+    it('recovers stale runs and removes host budgets older than the retention window', async () => {
+      const now = new Date();
+      const [staleRun] = await ctx.db
+        .insert(s.discoveryRuns)
+        .values({
+          trigger: 'integration-fixture',
+          status: 'running',
+          seedsSeen: 1,
+          startedAt: new Date(now.getTime() - 31 * 60_000),
+        })
+        .returning({ id: s.discoveryRuns.id });
+      await ctx.db.insert(s.sourceHostBudgets).values({
+        hostname: 'stale.example.com',
+        nextRequestAt: new Date(now.getTime() - 31 * 24 * 60 * 60_000),
+      });
+
+      // localhost is rejected by public-IP validation before an HTTP request is sent.
+      const result = await runConfiguredSeedDiscovery('https://localhost', 15, now);
+
+      expect(result).toHaveProperty('runId');
+      const [recovered] = await ctx.db
+        .select({ status: s.discoveryRuns.status })
+        .from(s.discoveryRuns)
+        .where(eq(s.discoveryRuns.id, staleRun.id));
+      expect(recovered.status).toBe('failed');
+      const staleBudget = await ctx.db
+        .select()
+        .from(s.sourceHostBudgets)
+        .where(eq(s.sourceHostBudgets.hostname, 'stale.example.com'));
+      expect(staleBudget).toHaveLength(0);
     });
   },
 );
