@@ -508,6 +508,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
           throw new AppError(409, 'Verify the employer before creating a source draft');
         const source = await registerSource(actor, {
           ...data,
+          applicationHostnames: normalizedHostnames,
           provider: candidate.provider,
           boardToken: candidate.boardToken,
           enabled: false,
