@@ -482,6 +482,25 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
           throw new AppError(409, 'Identify and review the candidate before creating a source draft');
         if (!candidate.provider || !candidate.boardToken)
           throw new AppError(409, 'This candidate has no supported ATS board identity; use the authorized manual-source workflow');
+        if (
+          data.authorizationExpiresAt &&
+          Date.parse(data.authorizationExpiresAt) <= Date.now()
+        )
+          throw new AppError(400, 'Authorization evidence must not be expired');
+        const normalizedHostnames = [...new Set(data.applicationHostnames.map((hostname) => hostname.replace(/\\.$/, '')))];
+        if (normalizedHostnames.length !== data.applicationHostnames.length)
+          throw new AppError(400, 'Application hostnames must be unique after normalization');
+        for (const hostname of normalizedHostnames) {
+          if (
+            hostname.length > 253 ||
+            !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/i.test(hostname) ||
+            hostname === 'localhost' ||
+            hostname.endsWith('.localhost') ||
+            hostname.endsWith('.local') ||
+            hostname.endsWith('.internal')
+          )
+            throw new AppError(400, 'Application hostnames must be valid public DNS names');
+        }
         const employer = requireValue(
           (await db.select().from(s.employers).where(eq(s.employers.id, data.employerId)))[0],
         );
