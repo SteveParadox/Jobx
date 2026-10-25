@@ -119,5 +119,74 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))(
         }
       },
     );
+    it(
+      'rejects source-draft validation if employer verification changes while the guard waits for its row lock',
+      async () => {
+        const [employer] = await ctx.db
+          .insert(s.employers)
+          .values({
+            name: 'Employer race fixture',
+            slug: 'employer-race-fixture',
+            website: 'https://careers.example.com',
+            verificationStatus: 'verified',
+          })
+          .returning({ id: s.employers.id });
+        const [candidate] = await ctx.db
+          .insert(s.discoveryCandidates)
+          .values({
+            canonicalUrl: 'https://boards.greenhouse.io/employer-race',
+            hostname: 'boards.greenhouse.io',
+            provider: 'greenhouse',
+            boardToken: 'employer-race',
+            state: 'IDENTIFIED',
+            employerId: employer.id,
+            reviewedAt: new Date(),
+            requiresPermissionReview: true,
+            evidence: [],
+          })
+          .returning({ id: s.discoveryCandidates.id });
+
+        const holder = await ctx.pool.connect();
+        await holder.query('BEGIN');
+        try {
+          await holder.query('SELECT id FROM employers WHERE id = $1 FOR UPDATE', [employer.id]);
+          const guard = ctx.db.transaction((tx) =>
+            assertReviewedCandidateCurrent(tx, {
+              id: candidate.id,
+              employerId: employer.id,
+              provider: 'greenhouse',
+              boardToken: 'employer-race',
+            }),
+          );
+
+          await vi.waitFor(
+            async () => {
+              const { rows } = await ctx.pool.query(
+                `SELECT pid FROM pg_stat_activity
+                 WHERE application_name = $1
+                   AND wait_event_type = 'Lock'
+                   AND query ILIKE '%employers%'`,
+                [ctx.applicationName],
+              );
+              expect(rows.length).toBeGreaterThan(0);
+            },
+            { timeout: 3000, interval: 20 },
+          );
+
+          await holder.query(
+            "UPDATE employers SET verification_status = 'pending' WHERE id = $1",
+            [employer.id],
+          );
+          await holder.query('COMMIT');
+          await expect(guard).rejects.toMatchObject({ status: 409 });
+        } finally {
+          try {
+            await holder.query('ROLLBACK');
+          } finally {
+            holder.release();
+          }
+        }
+      },
+    );
   },
 );
