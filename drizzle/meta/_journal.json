@@ -71,6 +71,13 @@
       "when": 1792886400000,
       "tag": "0009_distributed_host_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792886401000,
+      "tag": "0010_discovery_candidate_employer",
+      "breakpoints": true
     }
   ]
 }
