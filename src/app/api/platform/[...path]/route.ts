@@ -37,6 +37,7 @@ import {
 import { searchJobs, suggestions } from '@/domain/search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
+import { assertReviewedCandidateCurrent } from '@/domain/discovery/review-guard';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
 import { removeResume, queueResumeCleanup, resumeAccess } from '@/integrations/storage';
@@ -522,19 +523,12 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
             employerId: employer.id,
             provider: candidate.provider,
           },
-          validate: async (tx) => {
-            const [currentCandidate] = await tx.select().from(s.discoveryCandidates)
-              .where(eq(s.discoveryCandidates.id, candidate.id)).for('update').limit(1);
-            if (
-              !currentCandidate ||
-              currentCandidate.state !== 'IDENTIFIED' ||
-              !currentCandidate.reviewedAt ||
-              currentCandidate.employerId !== employer.id ||
-              currentCandidate.provider !== candidate.provider ||
-              currentCandidate.boardToken !== candidate.boardToken
-            )
-              throw new AppError(409, 'Discovery candidate review changed; reload and review it again before creating the source draft');
-          },
+          validate: (tx) => assertReviewedCandidateCurrent(tx, {
+            id: candidate.id,
+            employerId: employer.id,
+            provider: candidate.provider!,
+            boardToken: candidate.boardToken!,
+          }),
         });
         return { source, enabled: false, approvalStatus: 'pending', candidateId: candidate.id };
       }
