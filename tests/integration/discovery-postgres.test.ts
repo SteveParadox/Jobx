@@ -23,7 +23,9 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
     );
   });
 
-  it('assigns unique, ordered request slots when workers reserve one hostname concurrently', async () => {
+  it(
+    'assigns unique, ordered request slots when workers reserve one hostname concurrently',
+    async () => {
     const base = new Date('2026-10-25T12:00:00.000Z');
     const slots = await Promise.all(
       Array.from({ length: 8 }, () => reserveHostRequestSlot('careers.example.com', base)),
@@ -39,10 +41,13 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
       .select()
       .from(s.sourceHostBudgets);
     expect(budget.hostname).toBe('careers.example.com');
-    expect(budget.nextRequestAt.getTime()).toBe(ordered.at(-1));
-  });
+      expect(budget.nextRequestAt.getTime()).toBe(ordered.at(-1));
+    },
+  );
 
-  it('rejects source-draft validation if a candidate review changes while the guard waits for its row lock', async () => {
+  it(
+    'rejects source-draft validation if a candidate review changes while the guard waits for its row lock',
+    async () => {
     const [employer] = await ctx.db
       .insert(s.employers)
       .values({
@@ -70,7 +75,10 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
     const holder = await ctx.pool.connect();
     await holder.query('BEGIN');
     try {
-      await holder.query('SELECT id FROM discovery_candidates WHERE id = $1 FOR UPDATE', [candidate.id]);
+      await holder.query(
+        'SELECT id FROM discovery_candidates WHERE id = $1 FOR UPDATE',
+        [candidate.id],
+      );
       const guard = ctx.db.transaction((tx) =>
         assertReviewedCandidateCurrent(tx, {
           id: candidate.id,
@@ -89,7 +97,10 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
           [ctx.applicationName],
         );
         expect(rows.length).toBeGreaterThan(0);
-      }, { timeout: 3000, interval: 20 });
+      }, {
+        timeout: 3000,
+        interval: 20,
+      });
 
       await holder.query(
         `UPDATE discovery_candidates
@@ -105,6 +116,6 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))('PostgreSQL discovery con
       } finally {
         holder.release();
       }
-    }
-  });
+    },
+  );
 });
