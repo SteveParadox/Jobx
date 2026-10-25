@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import * as s from '../../src/db/schema';
 import { reserveHostRequestSlot } from '../../src/domain/discovery/career-crawler';
 import { assertReviewedCandidateCurrent } from '../../src/domain/discovery/review-guard';
+import { registerSource } from '../../src/domain/source-management';
 import { testPostgresDatabase } from '../postgres';
 
 // These tests deliberately require real PostgreSQL connections. PGlite cannot
@@ -188,5 +189,74 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))(
         }
       },
     );
+    it('creates a disabled, pending source draft only after revalidating the reviewed candidate and employer', async () => {
+      const admin = {
+        id: 'discovery-admin',
+        name: 'Discovery Admin',
+        email: 'discovery-admin@example.com',
+        role: 'admin',
+        emailVerified: true,
+        disabled: false,
+      };
+      await ctx.db.insert(s.user).values(admin);
+      const [employer] = await ctx.db
+        .insert(s.employers)
+        .values({
+          name: 'Source draft fixture',
+          slug: 'source-draft-fixture',
+          website: 'https://careers.example.com',
+          verificationStatus: 'verified',
+        })
+        .returning({ id: s.employers.id });
+      const [candidate] = await ctx.db
+        .insert(s.discoveryCandidates)
+        .values({
+          canonicalUrl: 'https://boards.greenhouse.io/draft-fixture',
+          hostname: 'boards.greenhouse.io',
+          provider: 'greenhouse',
+          boardToken: 'draft-fixture',
+          state: 'IDENTIFIED',
+          employerId: employer.id,
+          reviewedAt: new Date(),
+          requiresPermissionReview: true,
+          evidence: [],
+        })
+        .returning({ id: s.discoveryCandidates.id });
+
+      const source = await registerSource(
+        admin,
+        {
+          employerId: employer.id,
+          provider: 'greenhouse',
+          boardToken: 'draft-fixture',
+          permissionEvidence: 'Explicit fixture authorization evidence for testing only.',
+          attribution: 'Source draft fixture',
+          permittedFields: ['title', 'description', 'location', 'application'],
+          removalPolicy: 'Remove listings after confirmed source closure.',
+          intervalMinutes: 60,
+          applicationHostnames: ['careers.example.com'],
+          usageConditions: 'Test fixture only; no real-world redistribution permission is implied.',
+          autoPublish: false,
+          enabled: false,
+          config: {},
+        },
+        {
+          action: 'discovery.source_draft_created',
+          metadata: { candidateId: candidate.id, employerId: employer.id },
+          validate: (tx) =>
+            assertReviewedCandidateCurrent(tx, {
+              id: candidate.id,
+              employerId: employer.id,
+              provider: 'greenhouse',
+              boardToken: 'draft-fixture',
+            }),
+        },
+      );
+
+      expect(source.enabled).toBe(false);
+      expect(source.autoPublish).toBe(false);
+      expect(source.approvalStatus).toBe('pending');
+      expect(source.employerId).toBe(employer.id);
+    });
   },
 );
