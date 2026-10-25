@@ -29,7 +29,7 @@ async function waitForHostBudget(hostname: string): Promise<void> {
     .onConflictDoUpdate({
       target: s.sourceHostBudgets.hostname,
       set: {
-        nextRequestAt: sql`GREATEST(${s.sourceHostBudgets.nextRequestAt}, ${now}) + INTERVAL '1 second'`,
+        nextRequestAt: sql`GREATEST(${s.sourceHostBudgets.nextRequestAt}, ${now}) + (${MIN_HOST_INTERVAL_MS} * INTERVAL '1 millisecond')`,
       },
     })
     .returning({ nextRequestAt: s.sourceHostBudgets.nextRequestAt });
