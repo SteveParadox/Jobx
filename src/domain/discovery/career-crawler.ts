@@ -144,17 +144,22 @@ function retryDelay(response: SafeResponse | undefined, attempt: number): number
   );
 }
 
-async function requestWithRetry(url: URL): Promise<SafeResponse> {
+export async function requestWithRetry(
+  url: URL,
+  requester: (url: URL) => Promise<SafeResponse> = requestPinned,
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<SafeResponse> {
   for (let attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt++) {
     let response: SafeResponse | undefined;
     try {
-      response = await requestPinned(url);
+      response = await requester(url);
       const retryableStatus = response.status === 429 || [500, 502, 503, 504].includes(response.status);
       if (!retryableStatus || attempt === MAX_REQUEST_ATTEMPTS - 1) return response;
     } catch (error) {
       if (!transientNetworkFailure(error) || attempt === MAX_REQUEST_ATTEMPTS - 1) throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, retryDelay(response, attempt)));
+    await sleep(retryDelay(response, attempt));
   }
   throw new Error('Discovery request retry limit exceeded');
 }
