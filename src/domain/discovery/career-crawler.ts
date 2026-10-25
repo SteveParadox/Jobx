@@ -31,7 +31,10 @@ export async function reserveHostRequestSlot(
     .onConflictDoUpdate({
       target: s.sourceHostBudgets.hostname,
       set: {
-        nextRequestAt: sql`GREATEST(${s.sourceHostBudgets.nextRequestAt}, ${now}) + (${MIN_HOST_INTERVAL_MS} * INTERVAL '1 millisecond')`,
+        nextRequestAt: sql`GREATEST(
+          ${s.sourceHostBudgets.nextRequestAt},
+          ${now}
+        ) + (${MIN_HOST_INTERVAL_MS} * INTERVAL '1 millisecond')`,
       },
     })
     .returning({ nextRequestAt: s.sourceHostBudgets.nextRequestAt });
