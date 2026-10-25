@@ -79,27 +79,42 @@ export async function runConfiguredSeedDiscovery(
         processed++;
         try {
           const [existing] = await db.select({
-            id: s.discoveryCandidates.id, evidence: s.discoveryCandidates.evidence,
+            id: s.discoveryCandidates.id,
           }).from(s.discoveryCandidates)
             .where(eq(s.discoveryCandidates.canonicalUrl, candidate.canonicalUrl)).limit(1);
-          const evidence = Array.isArray(existing?.evidence)
-            ? existing.evidence as Array<Record<string, unknown>>
-            : [];
           const incoming = candidate.evidence[0];
-          const duplicate = evidence.some((item) =>
-            item.kind === incoming.kind && item.url === incoming.url && item.detail === incoming.detail,
-          );
-          const combined = duplicate ? evidence : [...evidence, incoming].slice(-25);
           await db.insert(s.discoveryCandidates).values({
             canonicalUrl: candidate.canonicalUrl, hostname: candidate.hostname,
             provider: candidate.provider, boardToken: candidate.boardToken,
             state: candidate.state, requiresPermissionReview: true,
-            evidence: combined, lastObservedAt: now,
+            evidence: candidate.evidence, lastObservedAt: now,
           }).onConflictDoUpdate({
             target: s.discoveryCandidates.canonicalUrl,
             set: {
               provider: candidate.provider, boardToken: candidate.boardToken,
-              evidence: combined, lastObservedAt: now,
+              // Merge against the current row in PostgreSQL, not a stale read made
+              // before the upsert. This preserves evidence when workers race.
+              evidence: sql`CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements(COALESCE(${s.discoveryCandidates.evidence}, '[]'::jsonb)) AS existing(item)
+                  WHERE existing.item->>'kind' = ${incoming.kind}
+                    AND existing.item->>'url' = ${incoming.url}
+                    AND existing.item->>'detail' = ${incoming.detail}
+                ) THEN ${s.discoveryCandidates.evidence}
+                ELSE (
+                  SELECT COALESCE(jsonb_agg(retained.item ORDER BY retained.ordinality), '[]'::jsonb)
+                  FROM (
+                    SELECT item, ordinality
+                    FROM jsonb_array_elements(
+                      COALESCE(${s.discoveryCandidates.evidence}, '[]'::jsonb) || ${JSON.stringify([incoming])}::jsonb
+                    ) WITH ORDINALITY AS appended(item, ordinality)
+                    ORDER BY ordinality DESC
+                    LIMIT 25
+                  ) AS retained
+                )
+              END`,
+              lastObservedAt: now,
               state: sql`CASE WHEN ${s.discoveryCandidates.state} = 'REJECTED' OR ${s.discoveryCandidates.reviewedAt} IS NOT NULL THEN ${s.discoveryCandidates.state} ELSE ${candidate.state} END`,
               requiresPermissionReview: true,
             },
