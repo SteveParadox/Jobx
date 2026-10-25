@@ -10,7 +10,7 @@ const MAX_INTERVAL_MINUTES = 10080;
 
 export async function runConfiguredSeedDiscovery(
   seedList: string,
-  intervalMinutes = 60,
+  intervalMinutes: number,
   now = new Date(),
   force = false,
 ) {
