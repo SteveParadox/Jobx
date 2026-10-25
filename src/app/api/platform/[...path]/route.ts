@@ -480,6 +480,8 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
         );
         if (candidate.state !== 'IDENTIFIED' || !candidate.reviewedAt)
           throw new AppError(409, 'Identify and review the candidate before creating a source draft');
+        if (!candidate.employerId || candidate.employerId !== data.employerId)
+          throw new AppError(409, 'The selected employer must match the employer linked during candidate review');
         if (!candidate.provider || !candidate.boardToken)
           throw new AppError(409, 'This candidate has no supported ATS board identity; use the authorized manual-source workflow');
         if (data.authorizationExpiresAt) {
@@ -527,18 +529,35 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
         const data = await body(req, z.object({
           state: z.enum(['IDENTIFIED', 'REVIEW_REQUIRED', 'REJECTED']),
           note: z.string().trim().min(10).max(2000),
+          employerId: z.uuid().optional(),
         }));
         return db.transaction(async (tx) => {
+          let linkedEmployerId: string | null = null;
+          if (data.state === 'IDENTIFIED') {
+            if (!data.employerId)
+              throw new AppError(400, 'An employer must be selected when identifying a discovery candidate');
+            const [employer] = await tx.select({
+              id: s.employers.id,
+              disabled: s.employers.disabled,
+              verificationStatus: s.employers.verificationStatus,
+            }).from(s.employers).where(eq(s.employers.id, data.employerId)).limit(1);
+            if (!employer || employer.disabled || employer.verificationStatus !== 'verified')
+              throw new AppError(409, 'The linked employer must exist and be verified');
+            linkedEmployerId = employer.id;
+          }
           const [candidate] = await tx.update(s.discoveryCandidates).set({
             state: data.state,
+            employerId: linkedEmployerId,
             requiresPermissionReview: true,
             reviewedAt: new Date(),
             reviewedBy: actor.id,
             reviewNote: data.note,
           }).where(eq(s.discoveryCandidates.id, uuid(p[2]))).returning({ id: s.discoveryCandidates.id });
           if (!candidate) throw new AppError(404, 'Discovery candidate not found');
-          await audit(tx, actor.id, 'discovery.candidate_reviewed', candidate.id, { state: data.state, note: data.note });
-          return { reviewed: true, id: candidate.id, state: data.state };
+          await audit(tx, actor.id, 'discovery.candidate_reviewed', candidate.id, {
+            state: data.state, note: data.note, employerId: linkedEmployerId,
+          });
+          return { reviewed: true, id: candidate.id, state: data.state, employerId: linkedEmployerId };
         });
       }
       if (
