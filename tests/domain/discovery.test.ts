@@ -12,7 +12,7 @@ import {
 describe('permission-aware source discovery primitives', () => {
   it('rejects oversized seed lists instead of silently truncating them', async () => {
     const seeds = Array.from({ length: 26 }, (_, index) => `https://example-${index}.com`).join('\n');
-    await expect(runConfiguredSeedDiscovery(seeds)).resolves.toMatchObject({
+    await expect(runConfiguredSeedDiscovery(seeds, 60)).resolves.toMatchObject({
       skipped: true,
       reason: 'seed_limit_exceeded',
       seedsSeen: 26,
