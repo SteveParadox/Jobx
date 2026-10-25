@@ -661,6 +661,7 @@ export const discoveryCandidates = pgTable(
     hostname: text('hostname').notNull(),
     provider: text('provider'),
     boardToken: text('board_token'),
+    employerId: uuid('employer_id').references(() => employers.id, { onDelete: 'set null' }),
     state: text('state').notNull().default('DISCOVERED'),
     requiresPermissionReview: boolean('requires_permission_review').notNull().default(true),
     evidence: jsonb('evidence').notNull().default([]),
