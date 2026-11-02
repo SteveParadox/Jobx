@@ -6,6 +6,7 @@ import { processIngestionTask } from '@/domain/ingestion-tasks';
 import { expireSourceAuthorizations } from '@/domain/source-management';
 import { expireJobs } from '@/domain/jobs';
 import { deliverNotification, generateDigests } from '@/domain/notifications';
+import { importApifyJobs } from '@/integrations/apify';
 import { submitIndexing } from '@/integrations/indexing';
 import { deleteStoredResumeCommand } from '@/integrations/storage';
 import { assertRuntime, env } from '@/lib/config';
@@ -69,6 +70,12 @@ const worker = new Worker(
         return syncSource(job.data.id);
       case 'ingestion':
         return processIngestionTask(job.data.taskId);
+      case 'apify-import': {
+        if (!env.APIFY_IMPORT_ENABLED) return { skipped: true };
+        const result = await importApifyJobs({ actorId: env.APIFY_ACTOR_ID });
+        log('apify_import_completed', result);
+        return result;
+      }
       case 'email':
         return deliverNotification(job.data.id);
       case 'index':
@@ -93,6 +100,13 @@ worker.on('failed', (job, error) =>
 );
 worker.on('error', (error) => log('worker_error', { error: error.message }));
 await queue.upsertJobScheduler('platform-tick', { every: 60000 }, { name: 'tick', data: {} });
+if (env.APIFY_IMPORT_ENABLED && env.APIFY_TOKEN)
+  await queue.upsertJobScheduler(
+    'apify-import',
+    { every: env.APIFY_IMPORT_INTERVAL_HOURS * 3600000 },
+    { name: 'apify-import', data: {} },
+  );
+else await queue.removeJobScheduler('apify-import');
 await queue.add('tick', {}, { jobId: 'startup-' + Date.now() });
 log('worker_started');
 let closing = false;
