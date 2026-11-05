@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { POST as authRoute } from '../../src/app/api/auth/[...all]/route';
 import * as s from '../../src/db/schema';
-import { currentActor, getAuth } from '../../src/lib/auth';
+import { currentActor } from '../../src/lib/auth';
 import { testDatabase } from '../helpers';
 vi.mock('../../src/lib/http', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../src/lib/http')>();
@@ -19,10 +19,12 @@ vi.mock('../../src/lib/email', () => ({
 }));
 let ctx: Awaited<ReturnType<typeof testDatabase>>;
 beforeAll(async () => {
+  vi.stubEnv('TRUSTED_PROXY_IP_HEADER', 'x-real-ip');
   ctx = await testDatabase();
 });
 afterAll(async () => {
   await ctx.client.close();
+  vi.unstubAllEnvs();
 });
 let requestCounter = 0;
 function request(path: string, data: unknown) {
@@ -31,7 +33,7 @@ function request(path: string, data: unknown) {
     headers: {
       'Content-Type': 'application/json',
       Origin: 'http://localhost:3000',
-      'x-forwarded-for': `198.51.100.${++requestCounter}`,
+      'x-real-ip': `198.51.100.${++requestCounter}`,
     },
     body: JSON.stringify(data),
   });
@@ -42,8 +44,7 @@ function lastLink() {
   return match![1].replaceAll('&amp;', '&');
 }
 it('registers, verifies email, signs in and resolves a real session', async () => {
-  const auth = getAuth();
-  const response = await auth.handler(
+  const response = await authRoute(
     request('sign-up/email', {
       email: 'auth-fixture@example.com',
       password: 'secure-fixture-password-123',
@@ -53,16 +54,16 @@ it('registers, verifies email, signs in and resolves a real session', async () =
   );
   expect(response.status).toBe(200);
   expect(mail.messages.at(-1)?.subject).toBe('Verify your email');
-  const denied = await auth.handler(
+  const denied = await authRoute(
     request('sign-in/email', {
       email: 'auth-fixture@example.com',
       password: 'secure-fixture-password-123',
     }),
   );
   expect(denied.status).toBe(403);
-  const verification = await auth.handler(new Request(lastLink()));
+  const verification = await authRoute(new Request(lastLink()));
   expect([200, 302]).toContain(verification.status);
-  const signedIn = await auth.handler(
+  const signedIn = await authRoute(
     request('sign-in/email', {
       email: 'auth-fixture@example.com',
       password: 'secure-fixture-password-123',
@@ -87,25 +88,24 @@ it('registers, verifies email, signs in and resolves a real session', async () =
   expect(await currentActor(req)).toBeNull();
 });
 it('resets a password and revokes old sessions', async () => {
-  const auth = getAuth();
-  const reset = await auth.handler(
+  const reset = await authRoute(
     request('request-password-reset', { email: 'auth-fixture@example.com', redirectTo: '/auth' }),
   );
   expect(reset.status).toBe(200);
   const resetLink = lastLink();
   expect(mail.messages.at(-1)?.subject).toBe('Reset your password');
-  const redirected = await auth.handler(new Request(resetLink));
+  const redirected = await authRoute(new Request(resetLink));
   expect(redirected.status).toBe(302);
   const destination = redirected.headers.get('location')!;
   const token = new URL(destination, 'http://localhost:3000').searchParams.get('token');
   expect(token).toBeTruthy();
-  const result = await auth.handler(
+  const result = await authRoute(
     request('reset-password', { newPassword: 'new-secure-fixture-password-456', token }),
   );
   expect(result.status).toBe(200);
   expect(
     (
-      await auth.handler(
+      await authRoute(
         request('sign-in/email', {
           email: 'auth-fixture@example.com',
           password: 'secure-fixture-password-123',
@@ -115,7 +115,7 @@ it('resets a password and revokes old sessions', async () => {
   ).not.toBe(200);
   expect(
     (
-      await auth.handler(
+      await authRoute(
         request('sign-in/email', {
           email: 'auth-fixture@example.com',
           password: 'new-secure-fixture-password-456',
@@ -138,7 +138,7 @@ it('rejects cross-origin authentication mutations and privilege injection', asyn
     }),
   );
   expect(response.status).toBe(403);
-  const signUp = await getAuth().handler(
+  const signUp = await authRoute(
     request('sign-up/email', {
       email: 'role-fixture@example.com',
       password: 'secure-fixture-password-123',

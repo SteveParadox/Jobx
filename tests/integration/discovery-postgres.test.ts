@@ -1,7 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as s from '../../src/db/schema';
-import { reserveHostRequestSlot } from '../../src/domain/discovery/career-crawler';
+import {
+  deferHostRequests,
+  reserveHostRequestSlot,
+} from '../../src/domain/discovery/career-crawler';
 import { runConfiguredSeedDiscovery } from '../../src/domain/discovery/discovery-service';
 import { assertReviewedCandidateCurrent } from '../../src/domain/discovery/review-guard';
 import { registerSource } from '../../src/domain/source-management';
@@ -28,169 +31,167 @@ describe.runIf(Boolean(process.env.TEST_POSTGRES_URL))(
       );
     });
 
-    it(
-      'assigns unique, ordered request slots when workers reserve one hostname concurrently',
-      async () => {
-        const base = new Date('2026-10-25T12:00:00.000Z');
-        const slots = await Promise.all(
-          Array.from({ length: 8 }, () => reserveHostRequestSlot('careers.example.com', base)),
-        );
-        const ordered = slots.map((slot) => slot.getTime()).sort((a, b) => a - b);
+    it('assigns unique, ordered request slots when workers reserve one hostname concurrently', async () => {
+      const base = new Date('2026-10-25T12:00:00.000Z');
+      const slots = await Promise.all(
+        Array.from({ length: 8 }, () => reserveHostRequestSlot('careers.example.com', base)),
+      );
+      const ordered = slots.map((slot) => slot.getTime()).sort((a, b) => a - b);
 
-        expect(new Set(ordered).size).toBe(ordered.length);
-        for (let index = 1; index < ordered.length; index++) {
-          expect(ordered[index] - ordered[index - 1]).toBeGreaterThanOrEqual(1000);
-        }
+      expect(new Set(ordered).size).toBe(ordered.length);
+      for (let index = 1; index < ordered.length; index++) {
+        expect(ordered[index] - ordered[index - 1]).toBeGreaterThanOrEqual(1000);
+      }
 
-        const [budget] = await ctx.db.select().from(s.sourceHostBudgets);
-        expect(budget.hostname).toBe('careers.example.com');
-        expect(budget.nextRequestAt.getTime()).toBe(ordered.at(-1));
-      },
-    );
+      const [budget] = await ctx.db.select().from(s.sourceHostBudgets);
+      expect(budget.hostname).toBe('careers.example.com');
+      expect(budget.nextRequestAt.getTime()).toBe(ordered.at(-1));
+    });
 
-    it(
-      'rejects source-draft validation if a candidate review changes while the guard waits for its row lock',
-      async () => {
-        const [employer] = await ctx.db
-          .insert(s.employers)
-          .values({
-            name: 'Discovery fixture employer',
-            slug: 'discovery-fixture-employer',
-            website: 'https://careers.example.com',
-            verificationStatus: 'verified',
-          })
-          .returning({ id: s.employers.id });
-        const [candidate] = await ctx.db
-          .insert(s.discoveryCandidates)
-          .values({
-            canonicalUrl: 'https://boards.greenhouse.io/fixture',
-            hostname: 'boards.greenhouse.io',
+    it('shares Retry-After cooldowns across runs without shortening existing host reservations', async () => {
+      const now = new Date();
+      const cooldown = new Date(now.getTime() + 3600000);
+      await deferHostRequests('cooldown.example.com', cooldown);
+      await deferHostRequests('cooldown.example.com', new Date(now.getTime() + 1000));
+      const slot = await reserveHostRequestSlot('cooldown.example.com', now);
+      expect(slot.getTime()).toBeGreaterThanOrEqual(cooldown.getTime());
+    });
+
+    it('rejects source-draft validation if a candidate review changes while the guard waits for its row lock', async () => {
+      const [employer] = await ctx.db
+        .insert(s.employers)
+        .values({
+          name: 'Discovery fixture employer',
+          slug: 'discovery-fixture-employer',
+          website: 'https://careers.example.com',
+          verificationStatus: 'verified',
+        })
+        .returning({ id: s.employers.id });
+      const [candidate] = await ctx.db
+        .insert(s.discoveryCandidates)
+        .values({
+          canonicalUrl: 'https://boards.greenhouse.io/fixture',
+          hostname: 'boards.greenhouse.io',
+          provider: 'greenhouse',
+          boardToken: 'fixture',
+          state: 'IDENTIFIED',
+          employerId: employer.id,
+          reviewedAt: new Date(),
+          requiresPermissionReview: true,
+          evidence: [],
+        })
+        .returning({ id: s.discoveryCandidates.id });
+
+      const holder = await ctx.pool.connect();
+      await holder.query('BEGIN');
+      try {
+        await holder.query('SELECT id FROM discovery_candidates WHERE id = $1 FOR UPDATE', [
+          candidate.id,
+        ]);
+        const guard = ctx.db.transaction((tx) =>
+          assertReviewedCandidateCurrent(tx, {
+            id: candidate.id,
+            employerId: employer.id,
             provider: 'greenhouse',
             boardToken: 'fixture',
-            state: 'IDENTIFIED',
-            employerId: employer.id,
-            reviewedAt: new Date(),
-            requiresPermissionReview: true,
-            evidence: [],
-          })
-          .returning({ id: s.discoveryCandidates.id });
+          }),
+        );
 
-        const holder = await ctx.pool.connect();
-        await holder.query('BEGIN');
-        try {
-          await holder.query(
-            'SELECT id FROM discovery_candidates WHERE id = $1 FOR UPDATE',
-            [candidate.id],
-          );
-          const guard = ctx.db.transaction((tx) =>
-            assertReviewedCandidateCurrent(tx, {
-              id: candidate.id,
-              employerId: employer.id,
-              provider: 'greenhouse',
-              boardToken: 'fixture',
-            }),
-          );
-
-          await vi.waitFor(
-            async () => {
-              const { rows } = await ctx.pool.query(
-                `SELECT pid FROM pg_stat_activity
+        await vi.waitFor(
+          async () => {
+            const { rows } = await ctx.pool.query(
+              `SELECT pid FROM pg_stat_activity
                  WHERE application_name = $1
                    AND wait_event_type = 'Lock'
                    AND query ILIKE '%discovery_candidates%'`,
-                [ctx.applicationName],
-              );
-              expect(rows.length).toBeGreaterThan(0);
-            },
-            { timeout: 3000, interval: 20 },
-          );
+              [ctx.applicationName],
+            );
+            expect(rows.length).toBeGreaterThan(0);
+          },
+          { timeout: 3000, interval: 20 },
+        );
 
-          await holder.query(
-            `UPDATE discovery_candidates
+        await holder.query(
+          `UPDATE discovery_candidates
              SET state = 'REVIEW_REQUIRED', employer_id = NULL, reviewed_at = NULL
              WHERE id = $1`,
-            [candidate.id],
-          );
-          await holder.query('COMMIT');
-          await expect(guard).rejects.toMatchObject({ status: 409 });
+          [candidate.id],
+        );
+        await holder.query('COMMIT');
+        await expect(guard).rejects.toMatchObject({ status: 409 });
+      } finally {
+        try {
+          await holder.query('ROLLBACK');
         } finally {
-          try {
-            await holder.query('ROLLBACK');
-          } finally {
-            holder.release();
-          }
+          holder.release();
         }
-      },
-    );
-    it(
-      'rejects source-draft validation if employer verification changes while the guard waits for its row lock',
-      async () => {
-        const [employer] = await ctx.db
-          .insert(s.employers)
-          .values({
-            name: 'Employer race fixture',
-            slug: 'employer-race-fixture',
-            website: 'https://careers.example.com',
-            verificationStatus: 'verified',
-          })
-          .returning({ id: s.employers.id });
-        const [candidate] = await ctx.db
-          .insert(s.discoveryCandidates)
-          .values({
-            canonicalUrl: 'https://boards.greenhouse.io/employer-race',
-            hostname: 'boards.greenhouse.io',
+      }
+    });
+    it('rejects source-draft validation if employer verification changes while the guard waits for its row lock', async () => {
+      const [employer] = await ctx.db
+        .insert(s.employers)
+        .values({
+          name: 'Employer race fixture',
+          slug: 'employer-race-fixture',
+          website: 'https://careers.example.com',
+          verificationStatus: 'verified',
+        })
+        .returning({ id: s.employers.id });
+      const [candidate] = await ctx.db
+        .insert(s.discoveryCandidates)
+        .values({
+          canonicalUrl: 'https://boards.greenhouse.io/employer-race',
+          hostname: 'boards.greenhouse.io',
+          provider: 'greenhouse',
+          boardToken: 'employer-race',
+          state: 'IDENTIFIED',
+          employerId: employer.id,
+          reviewedAt: new Date(),
+          requiresPermissionReview: true,
+          evidence: [],
+        })
+        .returning({ id: s.discoveryCandidates.id });
+
+      const holder = await ctx.pool.connect();
+      await holder.query('BEGIN');
+      try {
+        await holder.query('SELECT id FROM employers WHERE id = $1 FOR UPDATE', [employer.id]);
+        const guard = ctx.db.transaction((tx) =>
+          assertReviewedCandidateCurrent(tx, {
+            id: candidate.id,
+            employerId: employer.id,
             provider: 'greenhouse',
             boardToken: 'employer-race',
-            state: 'IDENTIFIED',
-            employerId: employer.id,
-            reviewedAt: new Date(),
-            requiresPermissionReview: true,
-            evidence: [],
-          })
-          .returning({ id: s.discoveryCandidates.id });
+          }),
+        );
 
-        const holder = await ctx.pool.connect();
-        await holder.query('BEGIN');
-        try {
-          await holder.query('SELECT id FROM employers WHERE id = $1 FOR UPDATE', [employer.id]);
-          const guard = ctx.db.transaction((tx) =>
-            assertReviewedCandidateCurrent(tx, {
-              id: candidate.id,
-              employerId: employer.id,
-              provider: 'greenhouse',
-              boardToken: 'employer-race',
-            }),
-          );
-
-          await vi.waitFor(
-            async () => {
-              const { rows } = await ctx.pool.query(
-                `SELECT pid FROM pg_stat_activity
+        await vi.waitFor(
+          async () => {
+            const { rows } = await ctx.pool.query(
+              `SELECT pid FROM pg_stat_activity
                  WHERE application_name = $1
                    AND wait_event_type = 'Lock'
                    AND query ILIKE '%employers%'`,
-                [ctx.applicationName],
-              );
-              expect(rows.length).toBeGreaterThan(0);
-            },
-            { timeout: 3000, interval: 20 },
-          );
+              [ctx.applicationName],
+            );
+            expect(rows.length).toBeGreaterThan(0);
+          },
+          { timeout: 3000, interval: 20 },
+        );
 
-          await holder.query(
-            "UPDATE employers SET verification_status = 'pending' WHERE id = $1",
-            [employer.id],
-          );
-          await holder.query('COMMIT');
-          await expect(guard).rejects.toMatchObject({ status: 409 });
+        await holder.query("UPDATE employers SET verification_status = 'pending' WHERE id = $1", [
+          employer.id,
+        ]);
+        await holder.query('COMMIT');
+        await expect(guard).rejects.toMatchObject({ status: 409 });
+      } finally {
+        try {
+          await holder.query('ROLLBACK');
         } finally {
-          try {
-            await holder.query('ROLLBACK');
-          } finally {
-            holder.release();
-          }
+          holder.release();
         }
-      },
-    );
+      }
+    });
     it('creates a disabled, pending source draft only after revalidating the reviewed candidate and employer', async () => {
       const admin = {
         id: 'discovery-admin',

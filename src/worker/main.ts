@@ -35,18 +35,9 @@ async function tick() {
   await pruneSearchHistory();
   await tickIngestion(queue);
   if (env.JOB_DISCOVERY_ENABLED) {
-    try {
-      await runConfiguredSeedDiscovery(
-        env.JOB_DISCOVERY_SEEDS ?? '',
-        env.JOB_DISCOVERY_INTERVAL_MINUTES,
-      );
-    } catch (error) {
-      // Discovery is auxiliary: a transient crawl or persistence failure must not
-      // prevent notifications, indexing, and the worker heartbeat from progressing.
-      log('discovery_tick_failed', {
-        error: error instanceof Error ? error.message.slice(0, 500) : 'Unknown discovery failure',
-      });
-    }
+    // Crawl in a separate job so slow discovery cannot stall the platform heartbeat.
+    // A stable minute identity coalesces ticks from independent worker processes.
+    await queue.add('discovery', {}, { jobId: 'discovery-' + Math.floor(Date.now() / 60000) });
   }
   const pending = await db
     .select({ id: s.deliveries.id })
@@ -78,6 +69,12 @@ const worker = new Worker(
     switch (job.name) {
       case 'tick':
         return tick();
+      case 'discovery':
+        if (!env.JOB_DISCOVERY_ENABLED) return { skipped: true, reason: 'discovery_disabled' };
+        return runConfiguredSeedDiscovery(
+          env.JOB_DISCOVERY_SEEDS ?? '',
+          env.JOB_DISCOVERY_INTERVAL_MINUTES,
+        );
       case 'import':
         return syncSource(job.data.sourceId, fetch, job.data.records);
       case 'sync':

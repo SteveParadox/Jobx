@@ -199,3 +199,35 @@ it('does not trust spoofable x-forwarded-for for request rate keys without a con
     else process.env.VERCEL = vercel;
   }
 });
+
+it('overwrites caller-supplied authentication limiter identities with validated ingress data', async () => {
+  const { authClientRequest } = await import('../../src/lib/http');
+  const original = process.env.TRUSTED_PROXY_IP_HEADER;
+  const vercel = process.env.VERCEL;
+  try {
+    delete process.env.VERCEL;
+    delete process.env.TRUSTED_PROXY_IP_HEADER;
+    const request = new Request('http://localhost:3000/api/auth/sign-in/email', {
+      method: 'POST',
+      body: '{}',
+      headers: {
+        'x-forwarded-for': '203.0.113.5',
+        'x-real-ip': '203.0.113.6',
+        'x-careeratlas-auth-client': '203.0.113.7',
+        'x-careeratlas-unverified-client': '203.0.113.8',
+      },
+    });
+    expect(authClientRequest(request.clone()).headers.get('x-careeratlas-auth-client')).toBe(
+      '0.0.0.0',
+    );
+    process.env.TRUSTED_PROXY_IP_HEADER = 'x-real-ip';
+    const sanitized = authClientRequest(request.clone());
+    expect(sanitized.headers.get('x-careeratlas-auth-client')).toBe('203.0.113.6');
+    expect(await sanitized.text()).toBe('{}');
+  } finally {
+    if (original === undefined) delete process.env.TRUSTED_PROXY_IP_HEADER;
+    else process.env.TRUSTED_PROXY_IP_HEADER = original;
+    if (vercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = vercel;
+  }
+});

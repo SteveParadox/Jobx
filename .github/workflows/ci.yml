@@ -27,6 +27,7 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       APP_ENV: test
+      TRUSTED_PROXY_IP_HEADER: x-real-ip
       SITE_URL: http://localhost:3000
       DATABASE_URL: postgresql://careeratlas:careeratlas@localhost:5432/careeratlas
       REDIS_URL: redis://localhost:6379
@@ -44,7 +45,7 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run test
+      - run: npm run test -- --reporter=default --reporter=junit --outputFile.junit=test-reports/vitest.xml
         env:
           DEMO_MODE: 'false'
           TEST_REDIS_URL: redis://localhost:6379
@@ -65,11 +66,12 @@ jobs:
           exit 1
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: verification-failure
+          name: verification-results
           path: |
             playwright-report/
             test-results/
+            test-reports/
             /tmp/careeratlas-web.log
             /tmp/careeratlas-worker.log

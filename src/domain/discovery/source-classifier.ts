@@ -25,7 +25,14 @@ export interface SourceCandidate {
   evidence: DiscoveryEvidence[];
 }
 
-const TRACKING_PARAMETERS = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref']);
+const TRACKING_PARAMETERS = new Set([
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'ref',
+]);
 
 function assertPublicHttpsUrl(input: string): URL {
   let url: URL;
@@ -36,7 +43,8 @@ function assertPublicHttpsUrl(input: string): URL {
   }
   if (url.protocol !== 'https:') throw new Error('Only HTTPS discovery candidates are accepted');
   if (url.username || url.password) throw new Error('Credential-bearing URLs are not accepted');
-  if (url.port && url.port !== '443') throw new Error('Non-standard ports are not accepted for discovery');
+  if (url.port && url.port !== '443')
+    throw new Error('Non-standard ports are not accepted for discovery');
   const host = url.hostname.toLowerCase().replace(/\.$/, '');
   if (
     !host ||
@@ -46,7 +54,8 @@ function assertPublicHttpsUrl(input: string): URL {
     /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
     host.includes(':') ||
     !host.includes('.')
-  ) throw new Error('Candidate hostname is not an eligible public DNS name');
+  )
+    throw new Error('Candidate hostname is not an eligible public DNS name');
   url.hostname = host;
   url.hash = '';
   for (const key of [...url.searchParams.keys()]) {
@@ -58,7 +67,8 @@ function assertPublicHttpsUrl(input: string): URL {
 
 export function canonicalizeCandidateUrl(input: string): string {
   const url = assertPublicHttpsUrl(input);
-  if (url.pathname.length > 2048 || url.href.length > 4096) throw new Error('Candidate URL exceeds discovery limits');
+  if (url.pathname.length > 2048 || url.href.length > 4096)
+    throw new Error('Candidate URL exceeds discovery limits');
   url.pathname = url.pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '') || '/';
   return url.toString();
 }
@@ -74,19 +84,27 @@ export function detectAts(input: string): { provider: AtsProvider; boardToken: s
   const path = url.pathname.split('/').filter(Boolean);
   if (host === 'boards.greenhouse.io' || host === 'job-boards.greenhouse.io') {
     const token = path[0];
-    return token && /^[a-z0-9_-]{1,100}$/i.test(token) ? { provider: 'greenhouse', boardToken: token } : null;
+    return token && /^[a-z0-9_-]{1,100}$/i.test(token)
+      ? { provider: 'greenhouse', boardToken: token }
+      : null;
   }
   if (host === 'jobs.lever.co') {
     const token = path[0];
-    return token && /^[a-z0-9_-]{1,100}$/i.test(token) ? { provider: 'lever', boardToken: token } : null;
+    return token && /^[a-z0-9_-]{1,100}$/i.test(token)
+      ? { provider: 'lever', boardToken: token }
+      : null;
   }
   if (host === 'jobs.eu.lever.co') {
     const token = path[0];
-    return token && /^[a-z0-9_-]{1,100}$/i.test(token) ? { provider: 'lever_eu', boardToken: token } : null;
+    return token && /^[a-z0-9_-]{1,100}$/i.test(token)
+      ? { provider: 'lever_eu', boardToken: token }
+      : null;
   }
   if (host === 'jobs.ashbyhq.com') {
     const token = path[0];
-    return token && /^[a-z0-9_-]{1,100}$/i.test(token) ? { provider: 'ashby', boardToken: token } : null;
+    return token && /^[a-z0-9_-]{1,100}$/i.test(token)
+      ? { provider: 'ashby', boardToken: token }
+      : null;
   }
   return null;
 }
@@ -99,12 +117,16 @@ export function candidateFromUrl(
   const canonicalUrl = canonicalizeCandidateUrl(input);
   const url = new URL(canonicalUrl);
   const ats = detectAts(canonicalUrl);
-  const evidence: DiscoveryEvidence[] = [{
-    kind: ats ? 'ats_pattern' : evidenceKind,
-    url: canonicalUrl,
-    observedAt,
-    detail: ats ? `Recognized ${ats.provider} board URL pattern; permission remains unverified` : 'Candidate URL observed; provider and permission require verification',
-  }];
+  const evidence: DiscoveryEvidence[] = [
+    {
+      kind: evidenceKind,
+      url: canonicalUrl,
+      observedAt,
+      detail: ats
+        ? `Recognized ${ats.provider} board URL pattern; permission remains unverified`
+        : 'Candidate URL observed; provider and permission require verification',
+    },
+  ];
   return {
     canonicalUrl,
     hostname: url.hostname,
@@ -132,8 +154,12 @@ export function resolveSameHostLink(baseUrl: string, href: string): string | nul
   }
 }
 
-export function mergeCandidateEvidence(existing: SourceCandidate, incoming: SourceCandidate): SourceCandidate {
-  if (existing.canonicalUrl !== incoming.canonicalUrl) throw new Error('Cannot merge different candidate identities');
+export function mergeCandidateEvidence(
+  existing: SourceCandidate,
+  incoming: SourceCandidate,
+): SourceCandidate {
+  if (existing.canonicalUrl !== incoming.canonicalUrl)
+    throw new Error('Cannot merge different candidate identities');
   const seen = new Set(existing.evidence.map((item) => `${item.kind}|${item.url}|${item.detail}`));
   const evidence = [...existing.evidence];
   for (const item of incoming.evidence) {
@@ -144,4 +170,16 @@ export function mergeCandidateEvidence(existing: SourceCandidate, incoming: Sour
     }
   }
   return { ...existing, evidence };
+}
+
+/** Shared by server seed parsing and the administrator hostname form. */
+export function splitDiscoveryList(input: string): string[] {
+  return [
+    ...new Set(
+      input
+        .split(/[\n,;]+/)
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
 }

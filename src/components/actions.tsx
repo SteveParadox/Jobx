@@ -24,16 +24,21 @@ export async function api(path: string, method = 'GET', data?: unknown) {
   return result;
 }
 export function SaveJob({ jobId }: { jobId: string }) {
-  const [saved, setSaved] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [savedState, setSavedState] = useState<{ jobId: string; saved: boolean } | null>(null);
+  const ready = savedState?.jobId === jobId;
+  const saved = ready && savedState.saved;
   useEffect(() => {
     let mounted = true;
-    setReady(false);
     api('saved-jobs/' + jobId)
-      .then((value: { saved: boolean }) => { if (mounted) setSaved(value.saved); })
-      .catch(() => { if (mounted) setSaved(false); })
-      .finally(() => { if (mounted) setReady(true); });
-    return () => { mounted = false; };
+      .then((value: { saved: boolean }) => {
+        if (mounted) setSavedState({ jobId, saved: value.saved });
+      })
+      .catch(() => {
+        if (mounted) setSavedState({ jobId, saved: false });
+      });
+    return () => {
+      mounted = false;
+    };
   }, [jobId]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -47,7 +52,7 @@ export function SaveJob({ jobId }: { jobId: string }) {
           setError('');
           try {
             await api('saved-jobs', 'POST', { jobId, save: !saved });
-            setSaved(!saved);
+            setSavedState({ jobId, saved: !saved });
           } catch (e) {
             setError((e as Error).message);
           } finally {
@@ -131,10 +136,18 @@ export function NativeApply({
   useEffect(() => {
     let mounted = true;
     api('resumes/eligible')
-      .then((rows: { id: string; filename: string }[]) => { if (mounted) setResumes(rows); })
-      .catch(() => { if (mounted) setResumes([]); })
-      .finally(() => { if (mounted) setResumesReady(true); });
-    return () => { mounted = false; };
+      .then((rows: { id: string; filename: string }[]) => {
+        if (mounted) setResumes(rows);
+      })
+      .catch(() => {
+        if (mounted) setResumes([]);
+      })
+      .finally(() => {
+        if (mounted) setResumesReady(true);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -167,21 +180,37 @@ export function NativeApply({
             <textarea id="coverLetter" name="coverLetter" rows={6} maxLength={10000} />
           </Field>
           <Field
-            label={resumeRequired ? 'Select a verified résumé (required)' : 'Select a verified résumé (optional)'}
+            label={
+              resumeRequired
+                ? 'Select a verified résumé (required)'
+                : 'Select a verified résumé (optional)'
+            }
             name="resumeId"
             hint="Only your security-reviewed, clean PDFs are available here. Upload a new PDF in your workspace."
           >
-            <select id="resumeId" name="resumeId" required={resumeRequired} disabled={!resumesReady}>
+            <select
+              id="resumeId"
+              name="resumeId"
+              required={resumeRequired}
+              disabled={!resumesReady}
+            >
               <option value="">{resumesReady ? 'Choose a résumé' : 'Loading your résumés…'}</option>
               {resumes.map((resume) => (
-                <option key={resume.id} value={resume.id}>{resume.filename}</option>
+                <option key={resume.id} value={resume.id}>
+                  {resume.filename}
+                </option>
               ))}
             </select>
           </Field>
           {resumesReady && resumeRequired && !resumes.length && (
-            <Notice error>No clean résumé is available. Upload one in your workspace and complete security review first.</Notice>
+            <Notice error>
+              No clean résumé is available. Upload one in your workspace and complete security
+              review first.
+            </Notice>
           )}
-          <Button disabled={busy || !resumesReady || (resumeRequired && !resumes.length)}>{busy ? 'Submitting…' : 'Submit application'}</Button>
+          <Button disabled={busy || !resumesReady || (resumeRequired && !resumes.length)}>
+            {busy ? 'Submitting…' : 'Submit application'}
+          </Button>
         </form>
       )}
       {message && <Notice error={!ok}>{message}</Notice>}

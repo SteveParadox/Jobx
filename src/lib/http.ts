@@ -18,14 +18,20 @@ export function sameOrigin(req: Request) {
  * Without a verified proxy, use one fail-closed anonymous rate bucket, not spoofable forwarded headers.
  */
 export function clientAddress(req: Request): string {
-  const header = process.env.VERCEL === '1'
-    ? 'x-vercel-forwarded-for'
-    : process.env.TRUSTED_PROXY_IP_HEADER;
+  const header =
+    process.env.VERCEL === '1' ? 'x-vercel-forwarded-for' : process.env.TRUSTED_PROXY_IP_HEADER;
   if (!header || !['x-vercel-forwarded-for', 'x-real-ip', 'cf-connecting-ip'].includes(header))
     return 'unverified';
   const forwarded = req.headers.get(header);
   const address = forwarded?.split(',')[0]?.trim() ?? '';
   return isIP(address) ? address : 'unverified';
+}
+/** Overwrite the internal auth identity; callers cannot supply their own limiter key. */
+export function authClientRequest(req: Request): Request {
+  const address = clientAddress(req);
+  const headers = new Headers(req.headers);
+  headers.set('x-careeratlas-auth-client', address === 'unverified' ? '0.0.0.0' : address);
+  return new Request(req, { headers });
 }
 export async function rateLimit(key: string, limit = 30, window = 60) {
   if (!env.REDIS_URL) {
