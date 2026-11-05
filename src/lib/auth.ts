@@ -62,12 +62,8 @@ function createAuth() {
     advanced: {
       useSecureCookies: isProduction,
       ipAddress: {
-        // An unconfigured self-hosted service must not trust user-supplied proxy headers.
-        ipAddressHeaders: [
-          process.env.VERCEL === '1'
-            ? 'x-vercel-forwarded-for'
-            : process.env.TRUSTED_PROXY_IP_HEADER || 'x-careeratlas-unverified-client',
-        ],
+        // The auth route overwrites this internal header from validated ingress data.
+        ipAddressHeaders: ['x-careeratlas-auth-client'],
       },
     },
     rateLimit: {
@@ -81,11 +77,18 @@ function createAuth() {
               consume: async (key: string, rule: { window: number; max: number }) => {
                 const redis = getRedis();
                 const bucket = 'auth-rate:' + digest(key);
-                const count = Number(await redis.eval(
-                  "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n",
-                  1, bucket, rule.window,
-                ));
-                return { allowed: count <= rule.max, retryAfter: count > rule.max ? rule.window : null };
+                const count = Number(
+                  await redis.eval(
+                    "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n",
+                    1,
+                    bucket,
+                    rule.window,
+                  ),
+                );
+                return {
+                  allowed: count <= rule.max,
+                  retryAfter: count > rule.max ? rule.window : null,
+                };
               },
             },
           }),

@@ -75,3 +75,15 @@ The PostgreSQL test role needs `CREATEDB` and permission to install `pg_trgm` in
 `tests/integration/ingestion-postgres.test.ts` checks that manual retry waits on the source before locking a task, recovery skips locked sources without claiming their tasks, and failure handling waits on the source before locking a sync run. The tests use independent connections, `pg_stat_activity` wait events and `FOR UPDATE NOWAIT`; PGlite is intentionally not used to certify row-lock ordering. The three contention cases are explicitly skipped without `TEST_POSTGRES_URL`. These are same-server independent-connection checks, not a multi-host load or browser test.
 
 The authoring environment did not run a standalone PostgreSQL server, so the PostgreSQL-only cases remain unverified locally. Do not infer a passing result from test discovery or CI configuration. Hosted execution must be confirmed separately; the account-level Actions runner restriction remains a blocker until resolved.
+
+## Discovery audit acceptance
+
+With both `TEST_POSTGRES_URL` and `TEST_REDIS_URL` set, `npm test` also runs:
+
+- `discovery-postgres.test.ts`: independent PostgreSQL host pacing/cooldown reservations, review/employer race checks and stale-run cleanup.
+- `discovery-workflow.test.ts`: recorded discovery, real admin route review/draft creation, source approval/testing, controlled ingestion, moderation and public full-text search; failed-seed retry and stale-worker fencing.
+- `discovery-worker.test.ts`: actual persistent-worker startup, separate discovery dispatch, process crash/restart, heartbeat progress and stale-run recovery. It requires an isolated test broker with an empty `careeratlas` queue and no existing platform scheduler, and refuses an occupied queue. It removes its fixture queue/scheduler afterward. Do not run it against a deployed broker.
+
+The full discovery workflow uses recorded transport responses; it is not a live employer/provider or browser certification. `tests/e2e/platform.spec.ts` separately covers linking a reviewed candidate to a verified employer and creating only a disabled pending source through the admin UI. The isolated CI test server trusts its controlled `x-real-ip` header so browser fixtures represent separate clients without weakening production authentication limits.
+
+The November 5 audit recorded 234 passing unit/integration tests, zero skipped, on Node 22.21.1 with PostgreSQL 17.6 and Redis 7.4.2. Formatting, lint, typecheck and production build passed; migrations and seeding also passed locally. Four Playwright HTTP-only cases passed. Full browser execution remains blocked in the authoring environment by Unix-socket restrictions and must pass in hosted CI. See SOURCE_DISCOVERY_IMPLEMENTATION for the scope and remaining validation limits.

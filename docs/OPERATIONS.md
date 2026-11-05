@@ -78,7 +78,7 @@ A crashed worker between S3 deletion and DB acknowledgment safely repeats deleti
 
 ### Upload/account-erasure race
 
-Resume upload verifies the current account under a row lock *after* storing the private PDF,
+Resume upload verifies the current account under a row lock _after_ storing the private PDF,
 then inserts its database metadata while holding the same lock used for account deletion.
 If the account was erased while S3 accepted the file, the database transaction queues
 a durable orphan-object deletion instead of recreating a résumé. If persistence itself

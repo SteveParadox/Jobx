@@ -117,10 +117,12 @@ describe('employers and moderation', () => {
   });
   it('does not create an organization for a deleted or disabled account', async () => {
     await ctx.db.update(s.user).set({ disabled: true }).where(eq(s.user.id, candidate.id));
-    await expect(createEmployer(candidate, {
-      name: 'Unauthorized company',
-      website: 'https://example.com',
-    })).rejects.toMatchObject({ status: 409 });
+    await expect(
+      createEmployer(candidate, {
+        name: 'Unauthorized company',
+        website: 'https://example.com',
+      }),
+    ).rejects.toMatchObject({ status: 409 });
   });
   it('requires administrator approval to publish', async () => {
     const j = await draft();
@@ -186,36 +188,38 @@ describe('employers and moderation', () => {
     await expect(acceptInvite(candidate, secret)).rejects.toMatchObject({ status: 404 });
   });
 });
-  it('delivers team invitations to the invitee, not the inviter', async () => {
-    const invitation = await invite(owner, employerId, candidate.email, 'recruiter');
-    const [delivery] = await ctx.db.select().from(s.deliveries);
-    expect(delivery.to).toBe(candidate.email);
-    expect(delivery.userId).toBe(owner.id);
-    await deliverNotification(delivery.id);
-    expect((await ctx.db.select().from(s.deliveries))[0].to).toBe(candidate.email);
-    expect((await ctx.db.select().from(s.deliveries))[0]).toMatchObject({
-      status: 'sent', attempts: 1,
-    });
-    expect(invitation.id).toBeTruthy();
+it('delivers team invitations to the invitee, not the inviter', async () => {
+  const invitation = await invite(owner, employerId, candidate.email, 'recruiter');
+  const [delivery] = await ctx.db.select().from(s.deliveries);
+  expect(delivery.to).toBe(candidate.email);
+  expect(delivery.userId).toBe(owner.id);
+  await deliverNotification(delivery.id);
+  expect((await ctx.db.select().from(s.deliveries))[0].to).toBe(candidate.email);
+  expect((await ctx.db.select().from(s.deliveries))[0]).toMatchObject({
+    status: 'sent',
+    attempts: 1,
   });
-  it('does not deliver a revoked, expired, or already-accepted team invitation', async () => {
-    const invitation = await invite(owner, employerId, candidate.email, 'recruiter');
-    await ctx.db.update(s.invitations)
-      .set({ expiresAt: new Date(Date.now() - 1000) })
-      .where(eq(s.invitations.id, invitation.id));
-    const [delivery] = await ctx.db.select().from(s.deliveries);
-    await deliverNotification(delivery.id);
-    expect((await ctx.db.select().from(s.deliveries))[0].status).toBe('cancelled');
+  expect(invitation.id).toBeTruthy();
+});
+it('does not deliver a revoked, expired, or already-accepted team invitation', async () => {
+  const invitation = await invite(owner, employerId, candidate.email, 'recruiter');
+  await ctx.db
+    .update(s.invitations)
+    .set({ expiresAt: new Date(Date.now() - 1000) })
+    .where(eq(s.invitations.id, invitation.id));
+  const [delivery] = await ctx.db.select().from(s.deliveries);
+  await deliverNotification(delivery.id);
+  expect((await ctx.db.select().from(s.deliveries))[0].status).toBe('cancelled');
+});
+it('does not let an employer impersonate a candidate withdrawal', async () => {
+  const job = await publish();
+  const application = await submitApplication(candidate, { jobId: job.id, coverLetter: '' });
+  await expect(updateApplication(owner, application.id, 'withdrawn')).rejects.toMatchObject({
+    status: 403,
   });
-  it('does not let an employer impersonate a candidate withdrawal', async () => {
-    const job = await publish();
-    const application = await submitApplication(candidate, { jobId: job.id, coverLetter: '' });
-    await expect(updateApplication(owner, application.id, 'withdrawn')).rejects.toMatchObject({
-      status: 403,
-    });
-    await updateApplication(candidate, application.id, 'withdrawn');
-    expect((await ctx.db.select().from(s.applications))[0].status).toBe('withdrawn');
-  });
+  await updateApplication(candidate, application.id, 'withdrawn');
+  expect((await ctx.db.select().from(s.applications))[0].status).toBe('withdrawn');
+});
 
 describe('search and lifecycle', () => {
   it('matches indexed text and suggestions without returning account data', async () => {

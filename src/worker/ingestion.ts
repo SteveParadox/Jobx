@@ -46,7 +46,8 @@ export async function dispatchCommands(queue: TaskQueue, now = new Date()) {
     });
     if (!isStorageDeletion) {
       // Other command types acknowledge durable queue submission, not completion.
-      await db.update(s.outbox)
+      await db
+        .update(s.outbox)
         .set({ dispatchedAt: new Date() })
         .where(eq(s.outbox.id, command.id));
     }

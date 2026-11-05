@@ -394,13 +394,17 @@ describe('notification replay and delivery recovery', () => {
   });
   it('escalates the fifth actual provider failure to manual review instead of leaving pending forever', async () => {
     const d = await pending();
-    await ctx.db.update(s.deliveries).set({ attempts: 4, firstAttemptAt: new Date() })
+    await ctx.db
+      .update(s.deliveries)
+      .set({ attempts: 4, firstAttemptAt: new Date() })
       .where(eq(s.deliveries.id, d.id));
     vi.mocked(sendEmail).mockRejectedValueOnce(new Error('Provider still unavailable'));
     await expect(deliverNotification(d.id)).rejects.toThrow('Provider still unavailable');
     const [failed] = await ctx.db.select().from(s.deliveries);
     expect(failed).toMatchObject({
-      status: 'review', attempts: 5, lastError: 'Provider still unavailable',
+      status: 'review',
+      attempts: 5,
+      lastError: 'Provider still unavailable',
     });
     await deliverNotification(d.id);
     expect(vi.mocked(sendEmail)).toHaveBeenCalledTimes(1);
@@ -436,9 +440,13 @@ describe('durable private-object deletion', () => {
     });
     const response = await request('account/delete', 'POST', { confirmation: 'DELETE' });
     expect(response.status).toBe(200);
-    expect((await ctx.db.select().from(s.user).where(eq(s.user.id, candidate.id)))[0].disabled).toBe(true);
+    expect(
+      (await ctx.db.select().from(s.user).where(eq(s.user.id, candidate.id)))[0].disabled,
+    ).toBe(true);
     expect(await ctx.db.select().from(s.resumes)).toHaveLength(0);
-    const cleanup = (await ctx.db.select().from(s.outbox)).filter((v) => v.topic === 'storage-delete');
+    const cleanup = (await ctx.db.select().from(s.outbox)).filter(
+      (v) => v.topic === 'storage-delete',
+    );
     expect(cleanup).toHaveLength(1);
     expect(cleanup[0].payload).toEqual({
       objectKey: 'resumes/candidate/123e4567-e89b-12d3-a456-426614174000.pdf',
@@ -463,18 +471,23 @@ it('rejects a finished PDF upload after erasure and queues deletion of the orpha
   const send = vi.spyOn(S3Client.prototype, 'send').mockResolvedValue({} as never);
   try {
     await ctx.db.update(s.user).set({ disabled: true }).where(eq(s.user.id, candidate.id));
-    await expect(uploadResume(
-      candidate,
-      Buffer.from('%PDF-1.7 fixture document'),
-      'cv.pdf',
-      'application/pdf',
-    )).rejects.toMatchObject({ status: 409 });
+    await expect(
+      uploadResume(
+        candidate,
+        Buffer.from('%PDF-1.7 fixture document'),
+        'cv.pdf',
+        'application/pdf',
+      ),
+    ).rejects.toMatchObject({ status: 409 });
     expect(await ctx.db.select().from(s.resumes)).toHaveLength(0);
     const cleanup = await ctx.db.select().from(s.outbox);
-    expect(cleanup.some((row) =>
-      row.topic === 'storage-delete' &&
-      typeof (row.payload as { objectKey?: string })?.objectKey === 'string',
-    )).toBe(true);
+    expect(
+      cleanup.some(
+        (row) =>
+          row.topic === 'storage-delete' &&
+          typeof (row.payload as { objectKey?: string })?.objectKey === 'string',
+      ),
+    ).toBe(true);
     expect(send).toHaveBeenCalledTimes(1);
   } finally {
     send.mockRestore();
@@ -488,15 +501,17 @@ it('rejects a finished PDF upload after erasure and queues deletion of the orpha
 
 it('refuses a mismatched queue payload before attempting private S3 deletion', async () => {
   const { deleteStoredResumeCommand } = await import('../../src/integrations/storage');
-  const [row] = await ctx.db.insert(s.outbox).values({
-    topic: 'storage-delete',
-    payload: { objectKey: 'resumes/candidate/123e4567-e89b-12d3-a456-426614174000.pdf' },
-    dedupeKey: 'storage-delete:test-mismatch',
-  }).returning();
-  await expect(deleteStoredResumeCommand(
-    row.id,
-    'resumes/candidate/123e4567-e89b-12d3-a456-426614174001.pdf',
-  )).rejects.toThrow('does not match');
+  const [row] = await ctx.db
+    .insert(s.outbox)
+    .values({
+      topic: 'storage-delete',
+      payload: { objectKey: 'resumes/candidate/123e4567-e89b-12d3-a456-426614174000.pdf' },
+      dedupeKey: 'storage-delete:test-mismatch',
+    })
+    .returning();
+  await expect(
+    deleteStoredResumeCommand(row.id, 'resumes/candidate/123e4567-e89b-12d3-a456-426614174001.pdf'),
+  ).rejects.toThrow('does not match');
   const [pending] = await ctx.db.select().from(s.outbox).where(eq(s.outbox.id, row.id));
   expect(pending.dispatchedAt).toBeNull();
 });

@@ -334,10 +334,7 @@ export async function syncSource(
         } else if (job.sourceOwnerId !== sourceId) {
           // Employer-managed records and other authoritative sources keep control of the public copy.
           stats.protected++;
-        } else if (
-          job.fingerprint !== fp ||
-          job.status !== nextStatus
-        ) {
+        } else if (job.fingerprint !== fp || job.status !== nextStatus) {
           const previous = job;
           const status = nextStatus;
           [job] = await tx
