@@ -138,12 +138,12 @@ export async function deliverNotification(id: string) {
     const validRecipient = invitationId
       ? Boolean(
           invitation &&
-            invitation.email === d.to.trim().toLowerCase() &&
-            !invitation.acceptedAt &&
-            invitation.expiresAt > new Date() &&
-            inviterMembership &&
-            !inviterMembership.disabled &&
-            ['owner', 'admin'].includes(inviterMembership.role),
+          invitation.email === d.to.trim().toLowerCase() &&
+          !invitation.acceptedAt &&
+          invitation.expiresAt > new Date() &&
+          inviterMembership &&
+          !inviterMembership.disabled &&
+          ['owner', 'admin'].includes(inviterMembership.role),
         )
       : owner?.email === d.to;
     if (

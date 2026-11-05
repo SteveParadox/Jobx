@@ -2,7 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { Pool } from 'pg';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const password = 'Local-demo-password-2026!';
+let browserClient = 0;
 async function signIn(page: Page, email = 'candidate@example.invalid') {
+  // CI models a trusted ingress with distinct browser clients.
+  await page
+    .context()
+    .setExtraHTTPHeaders({ 'x-real-ip': `198.18.${process.pid % 254}.${++browserClient}` });
   await page.goto('/auth');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
@@ -244,4 +249,66 @@ test('registration verifies through the development inbox and supports password 
   await page.getByLabel('Password', { exact: true }).fill('changed-fixture-password-2026!');
   await page.getByRole('button', { name: 'Set new password' }).click();
   await expect(page.getByRole('status')).toContainText('Password reset.');
+});
+
+test('administrator links a discovery review to an employer and creates only a disabled pending source', async ({
+  page,
+}) => {
+  const boardToken = 'discovery-e2e-' + crypto.randomUUID();
+  const canonicalUrl = 'https://boards.greenhouse.io/' + boardToken;
+  const employerId = '7e883f89-1164-4b04-a85b-16fc02d7fc5b';
+  await pool.query(
+    `INSERT INTO discovery_candidates (canonical_url, hostname, provider, board_token, state)
+    VALUES ($1, 'boards.greenhouse.io', 'greenhouse', $2, 'REVIEW_REQUIRED')`,
+    [canonicalUrl, boardToken],
+  );
+  try {
+    await signIn(page, 'admin@example.invalid');
+    await page.goto('/admin');
+    await page.getByRole('tab', { name: 'Discovery', exact: true }).click();
+    const article = page
+      .locator('article')
+      .filter({ has: page.getByRole('link', { name: canonicalUrl, exact: true }) });
+    await article.getByLabel('Review state').selectOption('IDENTIFIED');
+    await article.getByLabel('Verified employer ID (required to identify)').fill(employerId);
+    await article
+      .getByLabel('Review note (required)')
+      .fill('Controlled fictional employer and board review for browser regression.');
+    await article.getByRole('button', { name: 'Save review', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('Candidate review saved');
+    await article.getByText('Create disabled source draft', { exact: true }).click();
+    await expect(article.getByLabel('Verified employer ID', { exact: true })).toHaveValue(
+      employerId,
+    );
+    await article
+      .getByLabel('Permission evidence')
+      .fill('Explicit fictional fixture permission for this browser regression only.');
+    await article.getByLabel('Application hostnames').fill('jobs.notion.com, careers.example.com');
+    await article
+      .getByLabel('Usage conditions')
+      .fill('Controlled fixture only; no live redistribution rights.');
+    await article
+      .getByLabel('Removal policy')
+      .fill('Remove fictional fixture listings after confirmed closure.');
+    await article.getByRole('button', { name: 'Create pending source draft' }).click();
+    await expect(page.getByRole('status')).toContainText('Disabled source draft created');
+    const { rows } = await pool.query(
+      'SELECT enabled, auto_publish, approval_status, employer_id, application_hostnames FROM job_sources WHERE provider=$1 AND board_token=$2',
+      ['greenhouse', boardToken],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      enabled: false,
+      auto_publish: false,
+      approval_status: 'pending',
+      employer_id: employerId,
+      application_hostnames: ['jobs.notion.com', 'careers.example.com'],
+    });
+  } finally {
+    await pool.query('DELETE FROM job_sources WHERE provider=$1 AND board_token=$2', [
+      'greenhouse',
+      boardToken,
+    ]);
+    await pool.query('DELETE FROM discovery_candidates WHERE canonical_url=$1', [canonicalUrl]);
+  }
 });

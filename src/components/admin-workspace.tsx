@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from './actions';
 import { IngestionWorkspace } from './ingestion-workspace';
+import { DiscoveryWorkspace } from './discovery-workspace';
 import { MetricsPanel } from './metrics-panel';
 import { Button, Notice } from './ui';
 type Serialized<T> = T extends Date
@@ -85,6 +86,7 @@ export function AdminWorkspace() {
           'Moderation',
           'Employers',
           'Sources',
+          'Discovery',
           'Reports',
           'SEO',
           'Analytics',
@@ -309,6 +311,7 @@ export function AdminWorkspace() {
       {tab === 'Sources' && (
         <IngestionWorkspace sources={data.sources} companies={data.companies} run={run} />
       )}
+      {tab === 'Discovery' && <DiscoveryWorkspace />}
       {tab === 'Sources' && (
         <section className="panel">
           <h2>Import an authorized complete snapshot</h2>

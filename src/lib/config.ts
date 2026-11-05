@@ -37,10 +37,19 @@ const schema = z.object({
   GOOGLE_PRIVATE_KEY: optional,
   ANALYTICS_ENABLED: bool,
   SOURCE_BROWSER_ENABLED: bool,
+  SOURCE_BROWSER_ENABLED: bool,
+
+  // Apify integration
   APIFY_TOKEN: optional,
   APIFY_IMPORT_ENABLED: bool,
   APIFY_IMPORT_INTERVAL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   APIFY_ACTOR_ID: optional,
+
+  // Autonomous job-source discovery
+  JOB_DISCOVERY_ENABLED: bool,
+  JOB_DISCOVERY_SEEDS: optional,
+  JOB_DISCOVERY_INTERVAL_MINUTES: z.coerce.number().int().min(15).max(10080).default(60),
+
 });
 export const env = schema.parse(process.env);
 export const isProduction = env.APP_ENV === 'production';

@@ -71,7 +71,10 @@ export const atsAdapters: SourceAdapter[] = ['greenhouse', 'lever', 'lever_eu', 
           snapshotFromRows(rows, (row) => {
             if (provider === 'greenhouse') {
               const parsed = parseGreenhouse({ jobs: [row] })[0];
-              const override = Object.hasOwn(ctx.config.locationOverrides, parsed.data.locationLabel)
+              const override = Object.hasOwn(
+                ctx.config.locationOverrides,
+                parsed.data.locationLabel,
+              )
                 ? ctx.config.locationOverrides[parsed.data.locationLabel]
                 : undefined;
               return override ? { ...parsed, data: { ...parsed.data, ...override } } : parsed;
