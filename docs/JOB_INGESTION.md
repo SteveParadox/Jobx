@@ -167,7 +167,7 @@ Supply both `TEST_POSTGRES_URL` and `TEST_REDIS_URL` to `npm test` to exercise t
 
 The Greenhouse public feed may supply a human-readable location label without a validated
 country/workplace classification. Such jobs intentionally stay pending. Approved source
-administrators may configure *exact-match* `config.locationOverrides`, for example:
+administrators may configure _exact-match_ `config.locationOverrides`, for example:
 
 ```json
 {

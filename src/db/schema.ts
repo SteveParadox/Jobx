@@ -651,7 +651,6 @@ export const developmentEmails = pgTable('development_emails', {
   createdAt: time('created_at'),
 });
 
-
 /** Discovered candidates are not authorized sources. Approval remains a separate workflow. */
 export const discoveryCandidates = pgTable(
   'discovery_candidates',

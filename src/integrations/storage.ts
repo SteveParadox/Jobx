@@ -55,11 +55,14 @@ export async function uploadResume(actor: Actor, bytes: Buffer, filename: string
         .where(eq(s.user.id, actor.id))
         .for('update');
       if (!user || user.disabled) {
-        await tx.insert(s.outbox).values({
-          topic: 'storage-delete',
-          payload: { objectKey },
-          dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
-        }).onConflictDoNothing();
+        await tx
+          .insert(s.outbox)
+          .values({
+            topic: 'storage-delete',
+            payload: { objectKey },
+            dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
+          })
+          .onConflictDoNothing();
         return null;
       }
       return (
@@ -79,7 +82,10 @@ export async function uploadResume(actor: Actor, bytes: Buffer, filename: string
     });
     if (!created) {
       cleanupQueued = true;
-      throw new AppError(409, 'The account is no longer active; the uploaded document is queued for deletion');
+      throw new AppError(
+        409,
+        'The account is no longer active; the uploaded document is queued for deletion',
+      );
     }
     return created;
   } catch (error) {
@@ -89,11 +95,14 @@ export async function uploadResume(actor: Actor, bytes: Buffer, filename: string
       } catch {
         // Attempt a durable fallback if immediate compensation is unavailable.
         try {
-          await getDb().insert(s.outbox).values({
-            topic: 'storage-delete',
-            payload: { objectKey },
-            dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
-          }).onConflictDoNothing();
+          await getDb()
+            .insert(s.outbox)
+            .values({
+              topic: 'storage-delete',
+              payload: { objectKey },
+              dedupeKey: 'storage-delete-orphan:' + digest(objectKey),
+            })
+            .onConflictDoNothing();
         } catch {
           log('resume_orphan_cleanup_unavailable', { objectKeyDigest: digest(objectKey) });
         }
@@ -143,11 +152,14 @@ export async function resumeAccess(actor: Actor, id: string) {
  */
 export async function queueResumeCleanup(tx: Tx, documents: { id: string; objectKey: string }[]) {
   for (const document of documents) {
-    await tx.insert(s.outbox).values({
-      topic: 'storage-delete',
-      payload: { objectKey: document.objectKey },
-      dedupeKey: 'storage-delete:' + document.id,
-    }).onConflictDoNothing();
+    await tx
+      .insert(s.outbox)
+      .values({
+        topic: 'storage-delete',
+        payload: { objectKey: document.objectKey },
+        dedupeKey: 'storage-delete:' + document.id,
+      })
+      .onConflictDoNothing();
   }
 }
 export async function deleteStoredResume(objectKey: string) {
@@ -187,12 +199,15 @@ export async function deleteStoredResumeCommand(commandId: number, requestedObje
 export async function removeResume(actor: Actor, id: string) {
   await getDb().transaction(async (tx) => {
     const resume = requireValue(
-      (await tx.select().from(s.resumes)
-        .where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)))
-        .for('update'))[0],
+      (
+        await tx
+          .select()
+          .from(s.resumes)
+          .where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)))
+          .for('update')
+      )[0],
     );
     await queueResumeCleanup(tx, [resume]);
-    await tx.delete(s.resumes)
-      .where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)));
+    await tx.delete(s.resumes).where(and(eq(s.resumes.id, id), eq(s.resumes.userId, actor.id)));
   });
 }
