@@ -32,10 +32,18 @@ export function discoveryLeadFingerprint(item: {
 }
 
 export async function purgeUnlicensedProviderDiscovery() {
+  const db = getDb();
   const permitted = ['usajobs','jooble'].filter(providerStorageAllowed);
-  if (!permitted.length) return getDb().delete(s.externalDiscoveryLeads);
-  return getDb().delete(s.externalDiscoveryLeads)
-    .where(notInArray(s.externalDiscoveryLeads.provider, permitted));
+  if (!permitted.length)
+    await db.delete(s.externalDiscoveryLeads);
+  else
+    await db.delete(s.externalDiscoveryLeads)
+      .where(notInArray(s.externalDiscoveryLeads.provider, permitted));
+  // Keep only recent operational observations, not unlimited provider data.
+  await db.delete(s.externalDiscoveryLeads)
+    .where(lt(s.externalDiscoveryLeads.lastSeenAt, new Date(Date.now() - 30 * 86400000)));
+  await db.delete(s.externalDiscoveryRuns)
+    .where(lt(s.externalDiscoveryRuns.startedAt, new Date(Date.now() - 180 * 86400000)));
 }
 
 /**
@@ -114,10 +122,12 @@ export async function runAutonomousProviderDiscovery(now = new Date()) {
                 lastSeenAt: now,
                 ...(changed ? {
                   lastChangedAt: now,
-                  state: current.state === 'rejected' ? 'rejected' : 'pending',
-                  reviewedAt: null,
-                  reviewedBy: null,
-                  reviewNote: null,
+                  ...(current.state === 'rejected' ? {} : {
+                    state: 'pending',
+                    reviewedAt: null,
+                    reviewedBy: null,
+                    reviewNote: null,
+                  }),
                 } : {}),
               }).where(eq(s.externalDiscoveryLeads.leadKey, fingerprints.key));
               if (changed) updated++;
@@ -168,6 +178,8 @@ export async function reviewExternalDiscoveryLead(
   note: string,
 ) {
   admin(actor);
+  if (note.trim().length < 10 || note.length > 2000)
+    throw new AppError(400, 'A documented review reason is required');
   if (!/^[a-f0-9]{64}$/.test(key))
     throw new AppError(400, 'Invalid lead identity');
   return getDb().transaction(async (tx) => {
