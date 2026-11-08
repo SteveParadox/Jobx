@@ -293,6 +293,41 @@ describe('Apify approval, provenance, refresh and publication', () => {
     expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
   });
 
+  it('quarantines ambiguous historical unowned jobs without inventing ownership', async () => {
+    const source = await authorize();
+    const [legacy] = await ctx.db
+      .insert(s.jobs)
+      .values({
+        employerId,
+        slug: 'legacy-remote-backend-engineer',
+        title: 'Remote Backend Engineer',
+        descriptionHtml: description,
+        descriptionText: description.replace(/<[^>]+>/g, ''),
+        locationLabel: 'Location not specified',
+        workplace: 'remote',
+        remoteEligibility: 'unknown',
+        remoteCountries: [],
+        applyUrl: 'https://careers.example.com/jobs/example-1',
+        applicationMethod: 'external',
+        status: 'pending',
+        fingerprint: 'legacy-without-apify-provenance',
+      })
+      .returning();
+    const imported = await run();
+    expect(imported.imported).toBe(0);
+    expect((await ctx.db.select().from(s.jobs))).toHaveLength(1);
+    expect((await ctx.db.select().from(s.mappings))).toHaveLength(0);
+    const [remaining] = await ctx.db.select().from(s.jobs);
+    expect(remaining.id).toBe(legacy.id);
+    expect(remaining.sourceOwnerId).toBeNull();
+    expect(remaining.status).toBe('pending');
+    expect((await ctx.db.select().from(s.ingestionErrors)).some(
+      (row) => row.stage === 'provenance' &&
+        row.reason.includes('AMBIGUOUS_LEGACY_OWNER'),
+    )).toBe(true);
+    expect((await ctx.db.select().from(s.sources).where(eq(s.sources.id, source.id)))[0].approvalStatus).toBe('approved');
+  });
+
   it('does not let an actor rename or take over another employer', async () => {
     await authorize();
     await run();
