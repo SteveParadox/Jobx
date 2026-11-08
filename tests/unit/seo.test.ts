@@ -25,6 +25,8 @@ const fixture: PublicJob = {
   city: 'Lagos',
   workplace: 'onsite',
   remoteCountries: [],
+  remoteEligibility: 'unknown',
+  vacancyCount: null,
   employmentType: 'FULL_TIME',
   seniority: null,
   category: null,
@@ -58,7 +60,7 @@ describe('JobPosting generation', () => {
     expect(schema).not.toHaveProperty('directApply');
   });
   it('uses remote eligibility only for fully remote work', () => {
-    const remote = jobSchema({ ...fixture, workplace: 'remote', remoteCountries: ['NG', 'GB'] })!;
+    const remote = jobSchema({ ...fixture, workplace: 'remote', remoteCountries: ['NG', 'GB'], remoteEligibility: 'restricted' })!;
     expect(remote).toHaveProperty('jobLocationType', 'TELECOMMUTE');
     expect(remote).toHaveProperty('applicantLocationRequirements');
     expect(remote).not.toHaveProperty('jobLocation');
@@ -69,6 +71,12 @@ describe('JobPosting generation', () => {
   it.each(['closed', 'expired', 'paused', 'draft'])('omits active markup for %s jobs', (status) =>
     expect(jobSchema({ ...fixture, status })).toBeNull(),
   );
+  it('does not infer worldwide eligibility from an unknown remote location', () => {
+    expect(jobSchema({ ...fixture, workplace: 'remote', remoteEligibility: 'unknown', remoteCountries: [] })).toBeNull();
+    const worldwide = jobSchema({ ...fixture, workplace: 'remote', remoteEligibility: 'worldwide', remoteCountries: [] })!;
+    expect(worldwide.jobLocationType).toBe('TELECOMMUTE');
+    expect(worldwide).not.toHaveProperty('applicantLocationRequirements');
+  });
   it('omits expired, demo, undated and insufficiently located records', () => {
     for (const change of [
       { expiresAt: new Date('2020-01-01') },
