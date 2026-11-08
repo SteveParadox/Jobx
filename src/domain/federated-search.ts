@@ -116,7 +116,9 @@ export async function federatedSearch(input: unknown) {
               const parsed: unknown = JSON.parse(cached);
               if (Array.isArray(parsed) && parsed.every((lead) =>
                 lead && typeof lead === 'object' && lead.provider === 'himalayas'
-              )) return parsed as SearchLead[];
+              )) return (parsed as SearchLead[]).filter((lead) =>
+                !lead.expiresAt || Date.parse(lead.expiresAt) > Date.now()
+              );
             } catch {
               // Refetch invalid cached values rather than surfacing broken results.
             }

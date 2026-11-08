@@ -90,6 +90,7 @@ describe('federated search input and official API adapters', () => {
       attributionUrl: 'https://himalayas.app',
     });
     expect(jobs[0].postedAt).toMatch(/^2026-/);
+    expect(jobs[0].expiresAt).toBe('2100-01-01T00:00:00.000Z');
   });
   it('calls the keyless Himalayas search endpoint without profile data or credentials', async () => {
     const request = vi.fn(async (_url: string, _init?: RequestInit) =>

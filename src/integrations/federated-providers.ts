@@ -16,6 +16,7 @@ export type SearchLead = {
   url: string;
   excerpt: string;
   postedAt: string | null;
+  expiresAt?: string | null;
   provenance: 'published_catalog' | 'external_api';
   attributionUrl: string | null;
   attributionLogoUrl: string | null;
@@ -181,7 +182,7 @@ export function parseHimalayas(payload: unknown, now = Date.now()): SearchLead[]
       const job = obj(raw);
       const expiry = date(job.expiryDate);
       if (expiry && Date.parse(expiry) <= now) return null;
-      return lead(
+      const item = lead(
         'himalayas',
         'Himalayas',
         job.guid,
@@ -194,6 +195,7 @@ export function parseHimalayas(payload: unknown, now = Date.now()): SearchLead[]
         'himalayas.app',
         'https://himalayas.app',
       );
+      return item ? { ...item, expiresAt: expiry } : null;
     })
     .filter((job): job is SearchLead => job !== null);
 }
