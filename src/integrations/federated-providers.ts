@@ -31,6 +31,7 @@ export type JsonFetch = typeof fetch;
 
 const MAX_BODY_BYTES = 1_800_000;
 const MAX_RESULTS = 15;
+const HIMALAYAS_PAGE_SIZE = 20;
 export const ADZUNA_MARKET_DOMAINS: Record<string, string> = {
   us: 'adzuna.com',
   gb: 'adzuna.co.uk',
@@ -57,13 +58,14 @@ const obj = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-const rows = (value: unknown): unknown[] => (Array.isArray(value) ? value.slice(0, MAX_RESULTS) : []);
+const rows = (value: unknown, max = MAX_RESULTS): unknown[] =>
+  Array.isArray(value) ? value.slice(0, max) : [];
 const txt = (value: unknown, limit = 240): string =>
   typeof value === 'string' ? value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit) : '';
 const date = (value: unknown): string | null => {
-  // Himalayas uses epoch milliseconds; other providers return ISO strings.
+  // Himalayas returns Unix seconds; some older fixtures use milliseconds.
   const millis = typeof value === 'number'
-    ? value
+    ? (value > 0 && value < 100_000_000_000 ? value * 1000 : value)
     : typeof value === 'string' && value.trim()
       ? Date.parse(value.trim())
       : NaN;
@@ -76,7 +78,13 @@ const validId = (value: unknown, url: string) =>
     ? String(value).slice(0, 180)
     : url;
 export function safeProviderUrl(value: unknown, allowedHost: string): string | null {
-  if (typeof value !== 'string' || value.length > 3000) return null;
+  if (
+    typeof value !== 'string' ||
+    value.length > 3000 ||
+    !value.trim() ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) return null;
   try {
     const url = new URL(value);
     if (
@@ -87,10 +95,8 @@ export function safeProviderUrl(value: unknown, allowedHost: string): string | n
       !(url.hostname === allowedHost || url.hostname.endsWith('.' + allowedHost))
     )
       return null;
-    url.hash = '';
-    for (const key of [...url.searchParams.keys()])
-      if (/^(utm_.+|gclid|fbclid)$/i.test(key)) url.searchParams.delete(key);
-    return url.toString();
+    // Partner tracking and application links must remain unchanged.
+    return value;
   } catch {
     return null;
   }
@@ -177,7 +183,7 @@ export function parseUsaJobs(payload: unknown): SearchLead[] {
     .filter((job): job is SearchLead => job !== null);
 }
 export function parseHimalayas(payload: unknown, now = Date.now()): SearchLead[] {
-  return rows(obj(payload).jobs)
+  return rows(obj(payload).jobs, HIMALAYAS_PAGE_SIZE)
     .map((raw) => {
       const job = obj(raw);
       const expiry = date(job.expiryDate);
@@ -354,13 +360,60 @@ export async function fetchJooble(
       body: JSON.stringify({
         keywords: query.q,
         location: query.location,
-        page: String(query.page),
+        page: query.page,
         ResultOnPage: 15,
       }),
     },
     request,
   );
   return parseJooble(payload);
+}
+/** Revalidate internal Redis data before any cached link reaches the browser. */
+export function cachedHimalayas(value: unknown, now = Date.now()): SearchLead[] | null {
+  if (!Array.isArray(value) || value.length > HIMALAYAS_PAGE_SIZE) return null;
+  const accepted: SearchLead[] = [];
+  for (const raw of value) {
+    const item = obj(raw);
+    if (
+      item.provider !== 'himalayas' ||
+      item.providerName !== 'Himalayas' ||
+      item.provenance !== 'external_api' ||
+      item.attributionUrl !== 'https://himalayas.app' ||
+      item.attributionLogoUrl !== null ||
+      typeof item.id !== 'string' ||
+      typeof item.title !== 'string' ||
+      typeof item.company !== 'string' ||
+      typeof item.location !== 'string' ||
+      typeof item.excerpt !== 'string' ||
+      typeof item.url !== 'string' ||
+      safeProviderUrl(item.url, 'himalayas.app') !== item.url ||
+      (item.postedAt !== null && typeof item.postedAt !== 'string') ||
+      (item.expiresAt !== null &&
+        item.expiresAt !== undefined &&
+        typeof item.expiresAt !== 'string')
+    ) return null;
+    if (item.expiresAt !== null && item.expiresAt !== undefined) {
+      const expires = Date.parse(item.expiresAt as string);
+      if (!Number.isFinite(expires)) return null;
+      if (expires <= now) continue;
+    }
+    accepted.push({
+      id: item.id,
+      provider: 'himalayas',
+      providerName: 'Himalayas',
+      title: item.title,
+      company: item.company,
+      location: item.location,
+      url: item.url,
+      excerpt: item.excerpt,
+      postedAt: item.postedAt as string | null,
+      expiresAt: (item.expiresAt as string | null | undefined) ?? null,
+      provenance: 'external_api',
+      attributionUrl: 'https://himalayas.app',
+      attributionLogoUrl: null,
+    });
+  }
+  return accepted;
 }
 export function uniqueLeads(leads: SearchLead[], max = 60): SearchLead[] {
   const seen = new Set<string>();
