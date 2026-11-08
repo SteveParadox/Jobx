@@ -226,6 +226,73 @@ describe('Apify approval, provenance, refresh and publication', () => {
     expect((await searchJobs({})).total).toBe(0);
   });
 
+
+  it('limits source revocation to the owner when two approved actors publish independently', async () => {
+    const first = await authorize();
+    await run();
+    const alternateActor = 'fixture~independent';
+    const second = await registerSource(root, {
+      employerId,
+      provider: 'manual_apify',
+      boardToken: apifyBoardToken(alternateActor, candidateSlug, website),
+      permissionEvidence: 'Recorded fictional separate source authority for the same verified employer.',
+      attribution: 'Second independent fixture actor',
+      permittedFields: ['title', 'description', 'location', 'application'],
+      removalPolicy: 'Deactivate only the second independent source contribution.',
+      intervalMinutes: 60,
+      autoPublish: true,
+      applicationHostnames: ['careers.example.com'],
+      usageConditions: 'Fictional contract for independent actor identity fixture.',
+    });
+    await reviewSource(root, second.id, 'approved', 'Second independent fixture source authorization evidence.');
+    await changeSourceEnabled(root.id, second.id, true);
+    expect((await importApifyJobs({ actorId: alternateActor, datasetFile })).imported).toBe(1);
+    const rows = await ctx.db.select().from(s.jobs);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((job) => job.sourceOwnerId))).toEqual(
+      new Set([first.id, second.id]),
+    );
+    await reviewSource(root, second.id, 'revoked', 'Revoking only the second source fixture approval evidence.');
+    expect((await ctx.db.select().from(s.jobs).where(eq(s.jobs.sourceOwnerId, first.id)))[0].status).toBe('active');
+    expect((await ctx.db.select().from(s.jobs).where(eq(s.jobs.sourceOwnerId, second.id)))[0].status).toBe('paused');
+    expect((await searchJobs({})).total).toBe(1);
+  });
+
+  it('respects source suspension without deleting independently maintained listings', async () => {
+    const source = await authorize();
+    await run();
+    await changeSourceEnabled(root.id, source.id, false);
+    expect((await run()).imported).toBe(0);
+    expect((await ctx.db.select().from(s.mappings))).toHaveLength(1);
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('paused');
+    expect((await searchJobs({})).total).toBe(0);
+  });
+
+  it('refreshes explicitly changed location metadata without inferring applicant eligibility', async () => {
+    await authorize();
+    await run();
+    await feed([{
+      ...item(),
+      locations_derived: ['Port Harcourt, Nigeria'],
+      cities_derived: ['Port Harcourt'],
+      countries_derived: ['Nigeria'],
+    }]);
+    expect((await run()).updated).toBe(1);
+    const [job] = await ctx.db.select().from(s.jobs);
+    expect(job.locationLabel).toBe('Port Harcourt, Nigeria');
+    expect(job.city).toBe('Port Harcourt');
+    expect(job.remoteEligibility).toBe('unknown');
+    expect(job.remoteCountries).toEqual([]);
+  });
+
+  it('does not close jobs after malformed source data or a failed dataset read', async () => {
+    await authorize();
+    await run();
+    await writeFile(datasetFile, '{malformed json', 'utf8');
+    await expect(run()).rejects.toThrow();
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
+  });
+
   it('does not let an actor rename or take over another employer', async () => {
     await authorize();
     await run();
