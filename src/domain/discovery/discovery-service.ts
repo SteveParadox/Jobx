@@ -126,7 +126,7 @@ export async function runConfiguredSeedDiscovery(
         });
         continue;
       }
-      await recordSeedHealth(seed, true, now, candidates.length);
+      const processedBeforeSeed = processed;
       for (const candidate of candidates) {
         if (processed >= MAX_CANDIDATES_PER_RUN) break;
         processed++;
@@ -225,6 +225,7 @@ export async function runConfiguredSeedDiscovery(
           else found++;
         });
       }
+      await recordSeedHealth(seed, true, now, processed - processedBeforeSeed);
     }
     const [finished] = await db
       .update(s.discoveryRuns)
