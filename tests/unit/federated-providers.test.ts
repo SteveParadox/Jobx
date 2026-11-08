@@ -209,6 +209,17 @@ describe('federated search input and official API adapters', () => {
       bad as unknown as typeof fetch,
     )).rejects.toThrow('UPSTREAM_ENVELOPE');
   });
+  it('flags source pages whose only jobs have unsafe destinations', async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({
+      results: [{ id: '1', title: 'Nurse', redirect_url: 'https://fake.example/job' }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    await expect(fetchAdzuna(
+      { q: 'nurse', location: '', page: 1 },
+      { appId: 'example', appKey: 'example', logoUrl: '/official.png' },
+      ['gb'],
+      request as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_RECORDS_REJECTED');
+  });
   it('keeps all twenty Himalayas search results rather than silently dropping five', () => {
     const now = 1794150000000;
     const jobs = Array.from({ length: 20 }, (_, i) => ({
