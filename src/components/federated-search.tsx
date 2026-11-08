@@ -86,7 +86,7 @@ export function FederatedSearch() {
               Job title, company or keywords
               <input
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={(e) => { setQ(e.target.value); setResult(null); setPage(1); }}
                 required
                 minLength={2}
                 maxLength={120}
@@ -97,14 +97,14 @@ export function FederatedSearch() {
               External API location (optional)
               <input
                 value={location}
-                onChange={(e) => setLocation(e.target.value)}
+                onChange={(e) => { setLocation(e.target.value); setResult(null); setPage(1); }}
                 maxLength={120}
                 placeholder="London, Nairobi, New York…"
               />
             </label>
             <label>
               Provider
-              <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+              <select value={provider} onChange={(e) => { setProvider(e.target.value); setResult(null); setPage(1); }}>
                 <option value="all">All configured providers</option>
                 <option value="jobx">Jobx approved listings</option>
                 <option value="himalayas">Himalayas (public remote-jobs API)</option>
@@ -115,7 +115,7 @@ export function FederatedSearch() {
             </label>
             <label>
               National API market (optional)
-              <select value={market} onChange={(e) => setMarket(e.target.value)}>
+              <select value={market} onChange={(e) => { setMarket(e.target.value); setResult(null); setPage(1); }}>
                 <option value="">All operator-configured markets</option>
                 <option value="ng">Nigeria</option>
                 <option value="us">United States</option>
@@ -137,7 +137,7 @@ export function FederatedSearch() {
             <input
               type="checkbox"
               checked={remoteOnly}
-              onChange={(e) => setRemoteOnly(e.target.checked)}
+              onChange={(e) => { setRemoteOnly(e.target.checked); setResult(null); setPage(1); }}
             />
             Remote-only (providers without a confirmed remote filter will be skipped)
           </label>
@@ -186,6 +186,7 @@ export function FederatedSearch() {
             <div className="row-actions">
               <small>Provider search page {page}. Each source has its own result ordering.</small>
               <Button
+                type="button"
                 variant="secondary"
                 disabled={busy || page <= 1}
                 onClick={() => { void searchPage(page - 1); }}
@@ -193,6 +194,7 @@ export function FederatedSearch() {
                 Previous
               </Button>
               <Button
+                type="button"
                 variant="secondary"
                 disabled={busy || page >= 20 || result.items.length === 0}
                 onClick={() => { void searchPage(page + 1); }}
@@ -220,6 +222,7 @@ export function FederatedSearch() {
                       </a>
                     </h3>
                     <p>{item.company} · {item.location}</p>
+                    <small>Source: {item.providerName}</small>
                     {item.excerpt && <p>{item.excerpt}</p>}
                     <small>
                       {item.provenance === 'published_catalog'
