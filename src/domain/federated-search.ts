@@ -38,7 +38,7 @@ export const federatedSearchSchema = z
 
 type Status = {
   provider: ProviderId;
-  state: 'ok' | 'not_configured' | 'skipped' | 'error';
+  state: 'ok' | 'partial' | 'not_configured' | 'skipped' | 'error';
   count: number;
   note: string;
 };
@@ -64,12 +64,19 @@ export async function federatedSearch(input: unknown) {
   ) => outputs.set(provider, { status: { provider, state, note, count: jobs.length }, jobs });
   const execute = (
     provider: ProviderId,
-    action: () => Promise<SearchLead[]>,
+    action: () => Promise<SearchLead[] | {
+      jobs: SearchLead[];
+      partial: boolean;
+      note: string;
+    }>,
     note = 'Fetched from the declared source.',
   ) => {
     tasks.push(
       action()
-        .then((jobs) => { setStatus(provider, 'ok', note, jobs); })
+        .then((result) => {
+          if (Array.isArray(result)) setStatus(provider, 'ok', note, result);
+          else setStatus(provider, result.partial ? 'partial' : 'ok', result.note, result.jobs);
+        })
         .catch(() => {
           // Never disclose provider request URLs: some contain API keys.
           setStatus(provider, 'error', 'Provider could not be reached or returned invalid data.');
@@ -163,17 +170,27 @@ export async function federatedSearch(input: unknown) {
     else
       execute('adzuna', async () => {
         // Limit this provider globally, in addition to per-account API throttling.
-        const results: SearchLead[] = [];
-        for (const market of markets) {
-          // A multi-market search performs one billed request per market.
+        const requests = await Promise.allSettled(markets.map(async (market) => {
+          // Rate-limit each market separately, then fetch concurrently.
           await rateLimit('federated:provider:adzuna:day', 90, 86400);
-          results.push(...await fetchAdzuna(query, {
+          return fetchAdzuna(query, {
             appId: env.FEDERATED_ADZUNA_APP_ID!,
             appKey: env.FEDERATED_ADZUNA_APP_KEY!,
             logoUrl: logo,
-          }, [market]));
-        }
-        return results;
+          }, [market]);
+        }));
+        const succeeded = requests.filter(
+          (item): item is PromiseFulfilledResult<SearchLead[]> => item.status === 'fulfilled',
+        );
+        if (!succeeded.length) throw new Error('ADZUNA_MARKETS_UNAVAILABLE');
+        const failed = requests.length - succeeded.length;
+        return {
+          jobs: succeeded.flatMap((item) => item.value),
+          partial: failed > 0,
+          note: failed
+            ? failed + ' of ' + requests.length + ' configured markets unavailable.'
+            : 'Fetched from the selected Adzuna markets.',
+        };
       });
   }
 
