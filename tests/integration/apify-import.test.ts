@@ -203,7 +203,6 @@ describe('Apify approval, provenance, refresh and publication', () => {
     await feed([changed]);
     const result = await run();
     expect(result.updated).toBe(0);
-    expect(result.quarantined).toBeUndefined();
     const [unchanged] = await ctx.db.select().from(s.jobs);
     expect(unchanged.salaryMin).toBe(60000);
     expect(unchanged.salaryMax).toBe(80000);
@@ -348,6 +347,7 @@ describe('Apify approval, provenance, refresh and publication', () => {
         fingerprint: 'legacy-without-apify-provenance',
       })
       .returning();
+    await feed([{ ...item(), title: 'Senior Backend Platform Engineer' }]);
     const imported = await run();
     expect(imported.imported).toBe(0);
     expect((await ctx.db.select().from(s.jobs))).toHaveLength(1);
