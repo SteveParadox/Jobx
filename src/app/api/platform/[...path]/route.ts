@@ -35,6 +35,7 @@ import {
   verifyEmployer,
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
+import { listSavedExternalLeads, saveExternalLead, updateExternalLead, removeExternalLead } from '@/domain/external-leads';
 import { federatedSearch } from '@/domain/federated-search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
@@ -172,8 +173,21 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     }
     if (method === 'GET' && path === 'federated-search') {
       await rateLimit('federated-search:account:' + actor.id, 4, 60);
-      return federatedSearch(Object.fromEntries(new URL(req.url).searchParams));
+      return federatedSearch(Object.fromEntries(new URL(req.url).searchParams), actor.id);
     }
+    if (method === 'GET' && path === 'external-leads') return listSavedExternalLeads(actor);
+    if (method === 'POST' && path === 'external-leads') {
+      const data = await body(req, z.object({ token: z.string().min(20).max(5000) }));
+      return saveExternalLead(actor, data.token);
+    }
+    if (p[0] === 'external-leads' && p.length === 2 && method === 'PATCH') {
+      const data = await body(req, z.object({
+        status: z.enum(['saved', 'applied', 'interviewing', 'offer', 'rejected', 'closed']),
+      }));
+      return updateExternalLead(actor, uuid(p[1]), data.status);
+    }
+    if (p[0] === 'external-leads' && p.length === 2 && method === 'DELETE')
+      return removeExternalLead(actor, uuid(p[1]));
     if (method === 'GET' && path === 'recommendations') return recommendations(actor);
     if (method === 'GET' && path === 'export')
       return new Response(JSON.stringify(await exportCandidateData(actor), null, 2), {
@@ -214,6 +228,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
         await tx.delete(s.profiles).where(eq(s.profiles.userId, actor.id));
         await tx.delete(s.alerts).where(eq(s.alerts.userId, actor.id));
         await tx.delete(s.savedJobs).where(eq(s.savedJobs.userId, actor.id));
+        await tx.delete(s.externalSavedLeads).where(eq(s.externalSavedLeads.userId, actor.id));
         await tx.delete(s.savedSearches).where(eq(s.savedSearches.userId, actor.id));
         await tx.delete(s.searchHistory).where(eq(s.searchHistory.userId, actor.id));
         await tx.delete(s.candidatePreferences).where(eq(s.candidatePreferences.userId, actor.id));

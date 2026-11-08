@@ -12,6 +12,7 @@ import {
 } from '@/integrations/federated-providers';
 import { env } from '@/lib/config';
 import { getRedis, rateLimit } from '@/lib/http';
+import { sealExternalLead } from './external-lead-tokens';
 import { digest } from '@/lib/security';
 import { z } from 'zod';
 
@@ -43,7 +44,7 @@ type Status = {
 };
 const providerOrder: ProviderId[] = ['jobx', 'himalayas', 'adzuna', 'usajobs', 'jooble'];
 
-export async function federatedSearch(input: unknown) {
+export async function federatedSearch(input: unknown, userId?: string) {
   const options = federatedSearchSchema.parse(input);
   const selected = (provider: ProviderId) =>
     options.provider === 'all' || options.provider === provider;
@@ -217,7 +218,10 @@ export async function federatedSearch(input: unknown) {
     return item ? [item.status] : [];
   });
   return {
-    items: uniqueLeads(grouped, 75),
+    items: uniqueLeads(grouped, 75).map((lead) => ({
+      ...lead,
+      saveToken: userId ? sealExternalLead(lead, userId) : null,
+    })),
     providers,
     query: options,
     checkedAt: new Date().toISOString(),

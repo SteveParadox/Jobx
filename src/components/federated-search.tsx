@@ -18,6 +18,7 @@ type Lead = {
   provenance: 'published_catalog' | 'external_api';
   attributionUrl: string | null;
   attributionLogoUrl: string | null;
+  saveToken: string | null;
 };
 type SearchResult = {
   items: Lead[];
@@ -40,6 +41,8 @@ export function FederatedSearch() {
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState('');
   const [page, setPage] = useState(1);
 
   async function searchPage(nextPage: number) {
@@ -155,6 +158,7 @@ export function FederatedSearch() {
           configured credentials and display rights. Some providers support only certain markets. Results are not guaranteed
           open or eligible; check the original vacancy before applying.
         </p>
+        {saveMessage && <Notice>{saveMessage}</Notice>}
         {error && (
           <div style={{ marginTop: 12 }}>
             <Notice error>{error}</Notice>
@@ -251,6 +255,26 @@ export function FederatedSearch() {
                           Remote jobs sourced from Himalayas
                         </a>
                       </p>
+                    )}
+                    {item.saveToken && (
+                      <Button
+                        variant="secondary"
+                        disabled={savingId === item.id}
+                        onClick={async () => {
+                          setSavingId(item.id);
+                          setSaveMessage('');
+                          try {
+                            await api('external-leads', 'POST', { token: item.saveToken });
+                            setSaveMessage('External lead saved to your private workspace.');
+                          } catch (e) {
+                            setSaveMessage((e as Error).message);
+                          } finally {
+                            setSavingId(null);
+                          }
+                        }}
+                      >
+                        Save external lead
+                      </Button>
                     )}
                     {item.provider === 'jooble' && item.attributionUrl && (
                       <p><a href={item.attributionUrl} target="_blank" rel="noopener noreferrer">Jobs powered by Jooble</a></p>
