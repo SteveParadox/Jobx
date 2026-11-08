@@ -48,6 +48,8 @@ export const sourceConfigSchema = z
       .string()
       .regex(/^JOB_SOURCE_TOKEN_[A-Z0-9_]{1,80}$/)
       .optional(),
+    // Fixed, audited header choices. No arbitrary admin-supplied header names.
+    credentialMode: z.enum(['bearer', 'recruitee_careers']).default('bearer'),
     recordsPath: z.string().max(200).default('jobs'),
     nextPath: z.string().max(200).optional(),
     completePath: z.string().max(200).optional(),
