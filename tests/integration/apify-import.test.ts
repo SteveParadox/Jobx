@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import * as s from '../../src/db/schema';
-import { createEmployer, verifyEmployer } from '../../src/domain/jobs';
+import { createEmployer, transitionJob, verifyEmployer } from '../../src/domain/jobs';
 import { searchJobs } from '../../src/domain/search';
 import {
   changeSourceEnabled, registerSource, reviewSource,
@@ -249,6 +249,22 @@ describe('Apify approval, provenance, refresh and publication', () => {
     const [closed] = await ctx.db.select().from(s.jobs);
     expect(closed.status).toBe('closed');
     expect(closed.closedAt?.toISOString()).toBe(closedAt.toISOString());
+  });
+
+  it('requires admin approval after employer resubmits a paused Apify job', async () => {
+    await authorize();
+    await run();
+    const [job] = await ctx.db.select().from(s.jobs);
+    await transitionJob(owner, job.id, 'pause');
+    await transitionJob(owner, job.id, 'submit');
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('pending');
+    const refresh = await run();
+    expect(refresh.imported).toBe(0);
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('pending');
+    await transitionJob(root, job.id, 'publish');
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
+    await run();
+    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('active');
   });
 
   it('honors explicit closure and never interprets a filtered snapshot as removal', async () => {
