@@ -23,7 +23,7 @@ type SearchResult = {
   items: Lead[];
   providers: {
     provider: ProviderId;
-    state: 'ok' | 'not_configured' | 'skipped' | 'error';
+    state: 'ok' | 'partial' | 'not_configured' | 'skipped' | 'error';
     count: number;
     note: string;
   }[];
@@ -85,6 +85,7 @@ export function FederatedSearch() {
             <label>
               Job title, company or keywords
               <input
+                disabled={busy}
                 value={q}
                 onChange={(e) => { setQ(e.target.value); setResult(null); setPage(1); }}
                 required
@@ -96,6 +97,7 @@ export function FederatedSearch() {
             <label>
               External API location (optional)
               <input
+                disabled={busy}
                 value={location}
                 onChange={(e) => { setLocation(e.target.value); setResult(null); setPage(1); }}
                 maxLength={120}
@@ -104,7 +106,7 @@ export function FederatedSearch() {
             </label>
             <label>
               Provider
-              <select value={provider} onChange={(e) => { setProvider(e.target.value); setResult(null); setPage(1); }}>
+              <select disabled={busy} value={provider} onChange={(e) => { setProvider(e.target.value); setResult(null); setPage(1); }}>
                 <option value="all">All configured providers</option>
                 <option value="jobx">Jobx approved listings</option>
                 <option value="himalayas">Himalayas (public remote-jobs API)</option>
@@ -115,7 +117,7 @@ export function FederatedSearch() {
             </label>
             <label>
               National API market (optional)
-              <select value={market} onChange={(e) => { setMarket(e.target.value); setResult(null); setPage(1); }}>
+              <select disabled={busy} value={market} onChange={(e) => { setMarket(e.target.value); setResult(null); setPage(1); }}>
                 <option value="">All operator-configured markets</option>
                 <option value="ng">Nigeria</option>
                 <option value="us">United States</option>
@@ -136,6 +138,7 @@ export function FederatedSearch() {
           <label className="checkbox">
             <input
               type="checkbox"
+              disabled={busy}
               checked={remoteOnly}
               onChange={(e) => { setRemoteOnly(e.target.checked); setResult(null); setPage(1); }}
             />
@@ -176,7 +179,7 @@ export function FederatedSearch() {
                 </div>
                 <span className="pill">
                   {source.state.replaceAll('_', ' ')}
-                  {source.state === 'ok' ? ' · ' + source.count : ''}
+                  {source.state === 'ok' || source.state === 'partial' ? ' · ' + source.count : ''}
                 </span>
               </div>
             ))}
