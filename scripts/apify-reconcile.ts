@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { closeDb, getDb } from '../src/db';
 import * as s from '../src/db/schema';
 
@@ -8,13 +8,11 @@ import * as s from '../src/db/schema';
  */
 try {
   const db = getDb();
-  let cursor: { createdAt: Date; id: string } | null = null;
+  // UUID keyset avoids timestamp precision loss when Date truncates PG microseconds.
+  let cursor: string | null = null;
   let reviewed = 0;
   for (;;) {
-    const base = and(
-      isNull(s.jobs.sourceOwnerId),
-      eq(s.jobs.applicationMethod, 'external'),
-    );
+
     const rows = await db
       .select({
         jobId: s.jobs.id,
@@ -29,20 +27,13 @@ try {
       .from(s.jobs)
       .innerJoin(s.employers, eq(s.jobs.employerId, s.employers.id))
       .where(
-        cursor
-          ? and(
-              base,
-              or(
-                lt(s.jobs.createdAt, cursor.createdAt),
-                and(
-                  eq(s.jobs.createdAt, cursor.createdAt),
-                  lt(s.jobs.id, cursor.id),
-                ),
-              ),
-            )
-          : base,
+        and(
+          isNull(s.jobs.sourceOwnerId),
+          eq(s.jobs.applicationMethod, 'external'),
+          cursor ? gt(s.jobs.id, cursor) : undefined,
+        ),
       )
-      .orderBy(desc(s.jobs.createdAt), desc(s.jobs.id))
+      .orderBy(asc(s.jobs.id))
       .limit(500);
     if (!rows.length) break;
     for (const row of rows) {
@@ -56,7 +47,7 @@ try {
       reviewed++;
     }
     const last = rows[rows.length - 1];
-    cursor = { createdAt: last.createdAt, id: last.jobId };
+    cursor = last.jobId;
   }
   console.error(
     'Reviewed ' + reviewed +
