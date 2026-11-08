@@ -12,7 +12,7 @@ import { checkApplicationLinks } from '@/integrations/sources/link-checks';
 import { canonicalApplicationUrl, validateSnapshot } from '@/integrations/sources/normalize';
 import { log } from '@/lib/log';
 import { digest, plainText, sanitizeDescription, slugify } from '@/lib/security';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { queueIndex } from './jobs';
 import { assertSourceApproved, changeSourceEnabled } from './source-management';
 
@@ -274,6 +274,36 @@ export async function syncSource(
           html = sanitizeDescription(d.descriptionHtml);
           text = plainText(html);
           fp = contentFingerprint(d);
+        }
+        // Historical direct Apify records have no reliable ownership marker.
+        // Flag exact-looking unowned listings for review instead of claiming them
+        // or publishing an unverified duplicate.
+        if (!job && source.provider === 'manual_apify') {
+          const [ambiguous] = await tx
+            .select({ id: s.jobs.id })
+            .from(s.jobs)
+            .where(
+              and(
+                eq(s.jobs.employerId, source.employerId),
+                isNull(s.jobs.sourceOwnerId),
+                eq(s.jobs.applyUrl, canonicalApplicationUrl(d.applyUrl!)),
+                eq(s.jobs.title, d.title),
+                sql`lower(${s.jobs.locationLabel})=lower(${d.locationLabel})`,
+              ),
+            )
+            .limit(1);
+          if (ambiguous) {
+            stats.quarantined++;
+            await tx.insert(s.ingestionErrors).values({
+              runId: run.id,
+              externalId: row.externalId,
+              stage: 'provenance',
+              reason: 'AMBIGUOUS_LEGACY_OWNER: matching unowned job requires independent review',
+              rawPayload: rawRetention(row.raw),
+              disposition: 'quarantined',
+            });
+            continue;
+          }
         }
         let alias = false;
         if (!job && source.provider !== 'manual_apify') {
