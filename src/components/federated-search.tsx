@@ -40,9 +40,9 @@ export function FederatedSearch() {
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(1);
 
-  async function search(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function searchPage(nextPage: number) {
     setResult(null);
     setError('');
     setBusy(true);
@@ -51,15 +51,22 @@ export function FederatedSearch() {
       location: location.trim(),
       provider,
       remoteOnly: String(remoteOnly),
+      page: String(nextPage),
       ...(market ? { market } : {}),
     });
     try {
       setResult(await api('federated-search?' + params.toString()));
+      setPage(nextPage);
     } catch (problem) {
       setError((problem as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void searchPage(1);
   }
 
   return (
@@ -73,7 +80,7 @@ export function FederatedSearch() {
         </p>
       </div>
       <section className="panel">
-        <form className="stack" onSubmit={search}>
+        <form className="stack" onSubmit={submit}>
           <div className="form-grid">
             <label>
               Job title, company or keywords
@@ -141,7 +148,8 @@ export function FederatedSearch() {
           </div>
         </form>
         <p style={{ marginTop: 16 }}>
-          The location field applies to external API providers; use the structured filters on
+          Sign in is required to protect provider quotas. The location field applies to
+          external API providers; use the structured filters on
           the public Jobx catalog page for catalog locations. Live partner APIs require separately
           configured credentials and display rights. Some providers support only certain markets. Results are not guaranteed
           open or eligible; check the original vacancy before applying.
@@ -174,6 +182,23 @@ export function FederatedSearch() {
           </section>
           <section className="panel">
             <h2>{result.items.length} result{result.items.length === 1 ? '' : 's'} from available sources</h2>
+            <div className="row-actions">
+              <small>Provider search page {page}. Each source has its own result ordering.</small>
+              <Button
+                variant="secondary"
+                disabled={busy || page <= 1}
+                onClick={() => { void searchPage(page - 1); }}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busy || page >= 20 || result.items.length === 0}
+                onClick={() => { void searchPage(page + 1); }}
+              >
+                Next page
+              </Button>
+            </div>
             {result.items.length === 0 ? (
               <Empty title="No results returned">
                 Broaden the query, select another provider, or configure the supported APIs.
