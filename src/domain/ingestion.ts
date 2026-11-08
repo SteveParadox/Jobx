@@ -67,6 +67,7 @@ function permittedData(row: FeedJob, fields: string[]) {
   if (!fields.includes('employment')) {
     data.employmentType = null;
     data.vacancyCount = null;
+    data.visaSponsorship = null;
   }
   if (!fields.includes('experience')) {
     data.experienceMin = null;
@@ -266,7 +267,9 @@ export async function syncSource(
             ) && (
               key !== 'skills' || source.permittedFields.includes('skills')
             ) && (
-              !['vacancyCount', 'employmentType'].includes(key) || source.permittedFields.includes('employment')
+              !['vacancyCount', 'employmentType', 'visaSponsorship'].includes(key) || source.permittedFields.includes('employment')
+            ) && (
+              !['experienceMin', 'seniority', 'education'].includes(key) || source.permittedFields.includes('experience')
             )) {
               const old = previous[key];
               incoming[key] = old instanceof Date ? old.toISOString() : old;
