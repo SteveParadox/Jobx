@@ -297,6 +297,7 @@ export async function fetchAdzuna(
     url.searchParams.set('what', query.q);
     if (query.location) url.searchParams.set('where', query.location);
     const payload = await requestJson(url, { method: 'GET', headers: { Accept: 'application/json' } }, request);
+    if (!Array.isArray(obj(payload).results)) throw new Error('UPSTREAM_ENVELOPE');
     result.push(...parseAdzuna(payload, market, credentials.logoUrl));
   }
   return result;
@@ -325,6 +326,8 @@ export async function fetchUsaJobs(
     },
     request,
   );
+  if (!Array.isArray(obj(obj(payload).SearchResult).SearchResultItems))
+    throw new Error('UPSTREAM_ENVELOPE');
   return parseUsaJobs(payload);
 }
 export async function fetchHimalayas(
@@ -366,6 +369,7 @@ export async function fetchJooble(
     },
     request,
   );
+  if (!Array.isArray(obj(payload).jobs)) throw new Error('UPSTREAM_ENVELOPE');
   return parseJooble(payload);
 }
 /** Revalidate internal Redis data before any cached link reaches the browser. */
