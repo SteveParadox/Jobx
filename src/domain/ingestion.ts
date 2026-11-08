@@ -448,7 +448,9 @@ export async function syncSource(
               originalPostedAt:
                 job.originalPostedAt ?? (d.originalPostedAt ? new Date(d.originalPostedAt) : null),
               publishedAt: status === 'active' ? (job.publishedAt ?? now) : job.publishedAt,
-              closedAt: expired || row.linkStatus === 'gone' ? now : null,
+              closedAt: ['closed', 'expired'].includes(status)
+                ? (job.closedAt ?? now)
+                : null,
             })
             .where(eq(s.jobs.id, job.id))
             .returning();
