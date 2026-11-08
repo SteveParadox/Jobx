@@ -86,3 +86,85 @@ Before merging/deploying:
 
 Operator credentials, active source permissions and paid aggregator licenses
 were **not** created or enabled by repository changes.
+
+
+## Recurring authorized provider discovery
+
+Migration `0014_external_provider_discovery` adds two **operator-only** tables:
+`external_discovery_leads` (hashed source URL identity, content fingerprint,
+original provider URL, operator query, first/last/changed timestamps, review
+state and reviewer) and `external_discovery_runs` (bounded run history).
+They are deliberately separate from published `jobs` and `job_sources`.
+
+Configure `JOB_AUTONOMOUS_PROVIDER_DISCOVERY_ENABLED=true`,
+`JOB_AUTONOMOUS_PROVIDER_DISCOVERY_INTERVAL_HOURS=24`, and
+`JOB_AUTONOMOUS_PROVIDER_DISCOVERY_SEEDS` as an array of up to ten
+operator-approved search descriptors, e.g.:
+
+```json
+[
+  {"q":"accountant","provider":"jooble","location":"Lagos","market":"ng"},
+  {"q":"public health","provider":"usajobs","location":"Boston","market":"us"}
+]
+```
+
+Before enabling the schedule, separately configure the provider's API key,
+market and quota rules, **and** enable `JOB_EXTERNAL_SAVE_PROVIDERS` only if
+that provider's agreement explicitly allows storing these records. The
+scheduler uses the same quota-limited connectors as `/discover`. It never
+downloads personal candidate profiles or publishes jobs.
+
+The BullMQ persistent worker runs searches no more often than the configured
+interval (6–168 hours). Per-query results are bounded, content-fingerprinted,
+deduplicated by provider and canonical link, and stored only as external
+review leads. A changed reviewed lead returns to pending; rejected leads
+remain rejected. If source rights are revoked in configuration, the next
+worker tick purges retained records for that provider.
+
+Admin → External discovery displays run health, keyword provenance, source
+links, content-change times, and review controls. Reviewing a lead is
+**not** authorization to redistribute the listing or create an employer.
+To publish, the employer must be independently verified and an approved
+source must still pass Jobx's normal import/review pipeline.
+
+The periodic worker cannot be replaced by a short-lived Vercel request.
+An empty database or absent credentials generates no pretend vacancies.
+
+## Additional employer-authorized ATS feeds
+
+The `smartrecruiters` source adapter is built in and recognized by source
+discovery. Its company token yields an exact official public Posting API
+endpoint; full posting details are required before any normalized job passes
+review.
+
+The existing `licensed_json` provider can now authenticate a Recruitee
+Careers Site API using `credentialMode: "recruitee_careers"` and a
+`JOB_SOURCE_TOKEN_...` environment variable. Credentials are sent only as
+`X-Careers-Sites-Token` to the **operator-approved, fixed HTTPS host**.
+For example, the employer-authorized endpoint is
+`https://example.recruitee.com/api/offers/`, with an operator-reviewed
+`recordsPath` and explicit field mapping reflecting real provider responses.
+The token must be issued by that employer. This does not assume every Recruitee
+site grants public redistribution rights, and it does not enable unauthenticated
+candidate submission. Provider docs announce mandatory token headers beginning
+February 10, 2027.
+
+Workable's private SPI/v3 jobs API requires an employer account token with
+`r_jobs` scope. Its existing bearer token flow is supported through
+`licensed_json` for authorized JSON documents, but a full posting adapter
+must check `state="published"` and retrieve complete job details before
+approving such records. Never import non-public roles by default.
+
+## Candidate alerts and filtering
+
+Candidate Dashboard → Privacy explicitly enables or disables profile-based
+matching. The Jobx published catalog already supports voluntary saved searches,
+daily/weekly email and in-app alerts, as well as job application tracking.
+The federated search UI now exposes **Jobx-only** optional employment, remote
+applicant country, posting age, and sort filters. Unsupported provider filters
+must not be silently reported as applied.
+
+External paid API alerts are **not** automatically turned on for all users.
+Those require a separate provider-specific delivery license, consent, lifetime
+quota policy, and unsubscribe/retention audit, rather than reusing the public
+catalog's alert subscriptions without permission.

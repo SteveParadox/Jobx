@@ -1,40 +1,46 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import { env } from '../../src/lib/config';
 import { sealExternalLead, unsealExternalLead, providerStorageAllowed } from '../../src/domain/external-lead-tokens';
 import type { SearchLead } from '../../src/integrations/federated-providers';
 
-const oldKey = env.AUTH_SECRET;
-const oldProviders = env.JOB_EXTERNAL_SAVE_PROVIDERS;
+const beforeSecret = env.AUTH_SECRET;
+const beforeAllowed = env.JOB_EXTERNAL_SAVE_PROVIDERS;
 afterEach(() => {
-  env.AUTH_SECRET = oldKey;
-  env.JOB_EXTERNAL_SAVE_PROVIDERS = oldProviders;
+  env.AUTH_SECRET = beforeSecret;
+  env.JOB_EXTERNAL_SAVE_PROVIDERS = beforeAllowed;
 });
 const example: SearchLead = {
-  id: 'usajobs:123', provider: 'usajobs', providerName: 'USAJOBS',
-  title: 'Public Health Specialist', company: 'Agency', location: 'Washington',
-  url: 'https://www.usajobs.gov/job/123', excerpt: '', postedAt: null,
-  provenance: 'external_api', attributionUrl: 'https://www.usajobs.gov',
-  attributionLogoUrl: null,
+  id: 'usajobs:example', provider: 'usajobs', providerName: 'USAJOBS',
+  title: 'Public Health Analyst', company: 'Agency',
+  location: 'Washington', url: 'https://www.usajobs.gov/job/100',
+  excerpt: '', postedAt: null, provenance: 'external_api',
+  attributionUrl: 'https://www.usajobs.gov', attributionLogoUrl: null,
 };
-describe('licensed saved-lead tokens', () => {
-  it('requires explicit provider retention permission', () => {
-    env.AUTH_SECRET = 'unit-test-secret-at-least-32-characters-long';
+describe('signed candidate-lead bookmarks', () => {
+  it('defaults to no provider retention, including Adzuna/Himalayas', () => {
+    env.AUTH_SECRET = 'unit-test-secret-that-is-at-least-32-characters';
     env.JOB_EXTERNAL_SAVE_PROVIDERS = '';
-    expect(sealExternalLead(example, 'account1')).toBeNull();
+    expect(sealExternalLead(example, 'user1')).toBeNull();
     expect(providerStorageAllowed('adzuna')).toBe(false);
     expect(providerStorageAllowed('himalayas')).toBe(false);
   });
-  it('is bound to one user, tamper-resistant and expires', () => {
-    env.AUTH_SECRET = 'unit-test-secret-at-least-32-characters-long';
+  it('rejects replay across users, tampering, expired tokens and permission withdrawal', () => {
+    env.AUTH_SECRET = 'unit-test-secret-that-is-at-least-32-characters';
     env.JOB_EXTERNAL_SAVE_PROVIDERS = 'usajobs';
-    const now = 1_800_000_000_000;
-    const token = sealExternalLead(example, 'account1', now);
+    const now = 1800000000000;
+    const token = sealExternalLead(example, 'user1', now);
     expect(token).toBeTruthy();
-    expect(unsealExternalLead(token!, 'account1', now).title).toBe(example.title);
-    expect(() => unsealExternalLead(token!, 'account2', now)).toThrow();
-    expect(() => unsealExternalLead(token!.slice(0,-2)+'ab', 'account1', now)).toThrow();
-    expect(() => unsealExternalLead(token!, 'account1', now + 16 * 60_000)).toThrow();
+    expect(unsealExternalLead(token!, 'user1', now).title).toBe(example.title);
+    expect(() => unsealExternalLead(token!, 'user2', now)).toThrow();
+    expect(() => unsealExternalLead(token! + 'a', 'user1', now)).toThrow();
+    expect(() => unsealExternalLead(token!, 'user1', now + 16 * 60000)).toThrow();
     env.JOB_EXTERNAL_SAVE_PROVIDERS = '';
-    expect(() => unsealExternalLead(token!, 'account1', now)).toThrow();
+    expect(() => unsealExternalLead(token!, 'user1', now)).toThrow();
+  });
+  it('does not make a very long upstream URL break the whole search', () => {
+    env.AUTH_SECRET = 'unit-test-secret-that-is-at-least-32-characters';
+    env.JOB_EXTERNAL_SAVE_PROVIDERS = 'usajobs';
+    expect(sealExternalLead({ ...example, url: 'https://www.usajobs.gov/' + 'x'.repeat(2400) }, 'user1'))
+      .toBeNull();
   });
 });
