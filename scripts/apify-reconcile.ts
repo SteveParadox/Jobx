@@ -1,41 +1,66 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, or } from 'drizzle-orm';
 import { closeDb, getDb } from '../src/db';
 import * as s from '../src/db/schema';
 
 /**
- * Conservative read-only audit: historical direct Apify jobs have no reliable
- * provider marker. Do not infer an ownership relationship from a URL or name.
+ * Read-only, keyset-paginated inventory for possible historical Apify imports.
+ * An unowned external listing is NOT proof of Apify provenance.
  */
 try {
   const db = getDb();
-  const rows = await db
-    .select({
-      jobId: s.jobs.id,
-      title: s.jobs.title,
-      applyUrl: s.jobs.applyUrl,
-      employerId: s.jobs.employerId,
-      employerName: s.employers.name,
-      verificationStatus: s.employers.verificationStatus,
-      status: s.jobs.status,
-      createdAt: s.jobs.createdAt,
-    })
-    .from(s.jobs)
-    .innerJoin(s.employers, eq(s.jobs.employerId, s.employers.id))
-    .where(and(isNull(s.jobs.sourceOwnerId), eq(s.jobs.applicationMethod, 'external')))
-    .orderBy(desc(s.jobs.createdAt))
-    .limit(500);
-  for (const row of rows) {
-    console.log(
-      JSON.stringify({
-        classification: 'manual_review_required',
-        confirmedApify: false,
-        ...row,
-      }),
+  let cursor: { createdAt: Date; id: string } | null = null;
+  let reviewed = 0;
+  for (;;) {
+    const base = and(
+      isNull(s.jobs.sourceOwnerId),
+      eq(s.jobs.applicationMethod, 'external'),
     );
+    const rows = await db
+      .select({
+        jobId: s.jobs.id,
+        title: s.jobs.title,
+        applyUrl: s.jobs.applyUrl,
+        employerId: s.jobs.employerId,
+        employerName: s.employers.name,
+        verificationStatus: s.employers.verificationStatus,
+        status: s.jobs.status,
+        createdAt: s.jobs.createdAt,
+      })
+      .from(s.jobs)
+      .innerJoin(s.employers, eq(s.jobs.employerId, s.employers.id))
+      .where(
+        cursor
+          ? and(
+              base,
+              or(
+                lt(s.jobs.createdAt, cursor.createdAt),
+                and(
+                  eq(s.jobs.createdAt, cursor.createdAt),
+                  lt(s.jobs.id, cursor.id),
+                ),
+              ),
+            )
+          : base,
+      )
+      .orderBy(desc(s.jobs.createdAt), desc(s.jobs.id))
+      .limit(500);
+    if (!rows.length) break;
+    for (const row of rows) {
+      console.log(
+        JSON.stringify({
+          classification: 'manual_review_required',
+          confirmedApify: false,
+          ...row,
+        }),
+      );
+      reviewed++;
+    }
+    const last = rows[rows.length - 1];
+    cursor = { createdAt: last.createdAt, id: last.jobId };
   }
   console.error(
-    'Reviewed ' + rows.length +
-      ' unowned external jobs (max 500). These are not necessarily Apify imports. No data changed.',
+    'Reviewed ' + reviewed +
+      ' unowned external jobs. These are not necessarily Apify imports. No data changed.',
   );
 } finally {
   await closeDb();
