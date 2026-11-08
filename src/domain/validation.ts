@@ -74,6 +74,7 @@ export const jobSchema = z
       .array(z.string().regex(/^[A-Z]{2}$/))
       .max(250)
       .default([]),
+    remoteEligibility: z.enum(['unknown', 'restricted', 'worldwide']).optional(),
     employmentType: employment.nullable().optional(),
     category: optionalText(),
     seniority: optionalText(),
@@ -89,6 +90,7 @@ export const jobSchema = z
       .nullable()
       .optional(),
     salaryPeriod: z.enum(['HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR']).nullable().optional(),
+    vacancyCount: z.number().int().min(0).max(1000000).nullable().optional(),
     applicationMethod: z.enum(['external', 'native']).default('external'),
     resumeRequired: z.boolean().default(false),
     applyUrl: https.nullable().optional(),
@@ -102,11 +104,23 @@ export const jobSchema = z
         message: 'External applications need an HTTPS destination',
         path: ['applyUrl'],
       });
-    if (v.workplace === 'remote' && v.remoteCountries.length === 0)
+    if (v.workplace === 'remote' && v.remoteEligibility === 'restricted' && v.remoteCountries.length === 0)
       c.addIssue({
         code: 'custom',
-        message: 'Specify permitted applicant countries for fully remote work',
+        message: 'Country-restricted remote roles require explicit eligible countries',
         path: ['remoteCountries'],
+      });
+    if (v.workplace === 'remote' && v.remoteEligibility === 'worldwide' && v.remoteCountries.length > 0)
+      c.addIssue({
+        code: 'custom',
+        message: 'Worldwide eligibility must not include country restrictions',
+        path: ['remoteCountries'],
+      });
+    if (v.workplace !== 'remote' && v.remoteEligibility && v.remoteEligibility !== 'unknown')
+      c.addIssue({
+        code: 'custom',
+        message: 'Remote eligibility applies only to remote roles',
+        path: ['remoteEligibility'],
       });
     if (v.workplace !== 'remote' && !v.country)
       c.addIssue({

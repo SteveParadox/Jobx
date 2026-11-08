@@ -134,6 +134,8 @@ export const sourceConfigSchema = z
                 'city',
                 'workplace',
                 'remoteCountries',
+                'remoteEligibility',
+                'vacancyCount',
                 'skills',
                 'employmentType',
                 'category',

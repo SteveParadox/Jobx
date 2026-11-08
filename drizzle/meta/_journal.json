@@ -78,6 +78,13 @@
       "when": 1792886401000,
       "tag": "0010_discovery_candidate_employer",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794128400000,
+      "tag": "0011_remote_eligibility_and_vacancies",
+      "breakpoints": true
     }
   ]
 }

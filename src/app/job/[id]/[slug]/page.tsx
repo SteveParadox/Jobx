@@ -111,11 +111,21 @@ export default async function JobDetail({ params }: Props) {
                 {job.workplace === 'remote' && (
                   <>
                     <br />
-                    Applicant countries: {job.remoteCountries.join(', ')}
+                    {job.remoteEligibility === 'worldwide'
+                      ? 'Applicant eligibility: explicitly worldwide'
+                      : job.remoteEligibility === 'restricted'
+                        ? 'Eligible applicant countries: ' + job.remoteCountries.join(', ')
+                        : 'Applicant country eligibility: not confirmed by employer'}
                   </>
                 )}
               </dd>
             </div>
+            {job.vacancyCount != null && (
+              <div>
+                <dt>Vacancies</dt>
+                <dd>{job.vacancyCount}</dd>
+              </div>
+            )}
             {job.seniority && (
               <div>
                 <dt>Seniority</dt>

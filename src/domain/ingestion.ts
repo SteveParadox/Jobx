@@ -62,7 +62,10 @@ function permittedData(row: FeedJob, fields: string[]) {
     data.salaryPeriod = null;
   }
   if (!fields.includes('skills')) data.skills = [];
-  if (!fields.includes('employment')) data.employmentType = null;
+  if (!fields.includes('employment')) {
+    data.employmentType = null;
+    data.vacancyCount = null;
+  }
   if (!fields.includes('experience')) {
     data.experienceMin = null;
     data.seniority = undefined;
@@ -289,9 +292,7 @@ export async function syncSource(
         }
         const deadline = d.expiresAt ? new Date(d.expiresAt) : null;
         const knownLocation =
-          d.workplace === 'remote'
-            ? Boolean(d.remoteCountries.length)
-            : d.workplace !== 'unknown' && Boolean(d.country);
+          d.workplace === 'remote' ? true : d.workplace !== 'unknown' && Boolean(d.country);
         const publish =
           source.autoPublish &&
           knownLocation &&
@@ -322,6 +323,7 @@ export async function syncSource(
           city: d.city ?? null,
           workplace: d.workplace,
           remoteCountries: d.remoteCountries,
+          remoteEligibility: d.remoteEligibility ?? (d.workplace === 'remote' && d.remoteCountries.length > 0 ? 'restricted' : 'unknown'),
           employmentType: d.employmentType ?? null,
           category: d.category ?? null,
           seniority: d.seniority ?? null,
@@ -333,6 +335,7 @@ export async function syncSource(
           salaryMax: d.salaryMax ?? null,
           currency: d.currency ?? null,
           salaryPeriod: d.salaryPeriod ?? null,
+          vacancyCount: d.vacancyCount ?? null,
           applicationMethod: 'external',
           resumeRequired: false,
           applyUrl: canonicalApplicationUrl(d.applyUrl!),

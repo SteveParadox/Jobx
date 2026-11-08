@@ -111,6 +111,7 @@ export function normalizedRecord(input: unknown, baseUrl?: string): FeedJob {
     country,
     workplace: record.workplace ?? 'unknown',
     remoteCountries: record.remoteCountries ?? [],
+    remoteEligibility: record.remoteEligibility ?? (record.workplace === 'remote' && Array.isArray(record.remoteCountries) && record.remoteCountries.length > 0 ? 'restricted' : 'unknown'),
     skills: record.skills ?? [],
     applicationMethod: 'external',
     resumeRequired: false,

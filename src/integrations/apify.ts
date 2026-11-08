@@ -141,8 +141,7 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
         ? 'onsite'
         : 'unknown';
   const expiresAt = isoDate(item.date_valid_through);
-  if (expiresAt && Date.parse(expiresAt) <= Date.now()) return { skip: 'posting has expired' };
-  const countryNames = list(item.countries_derived);
+    const countryNames = list(item.countries_derived);
   const country = countryNames.map(countryFromName).find(Boolean);
   if (workplace !== 'remote' && !country)
     return { skip: 'missing normalized country for physical workplace' };
@@ -183,6 +182,7 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
       workplace,
       remoteCountries,
       remoteEligibility: 'unknown',
+      vacancyCount: number(item.ai_vacancies ?? item.vacancy_count),
       employmentType,
       category: list(item.ai_taxonomies_a)[0] || text(item.source) || undefined,
       seniority: experience(item.ai_experience_level).seniority,
