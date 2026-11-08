@@ -37,7 +37,6 @@ const schema = z.object({
   GOOGLE_PRIVATE_KEY: optional,
   ANALYTICS_ENABLED: bool,
   SOURCE_BROWSER_ENABLED: bool,
-  SOURCE_BROWSER_ENABLED: bool,
 
   // Apify integration
   APIFY_TOKEN: optional,

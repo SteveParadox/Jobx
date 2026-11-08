@@ -12,8 +12,9 @@ import { checkApplicationLinks } from '@/integrations/sources/link-checks';
 import { canonicalApplicationUrl, validateSnapshot } from '@/integrations/sources/normalize';
 import { log } from '@/lib/log';
 import { digest, plainText, sanitizeDescription, slugify } from '@/lib/security';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { queueIndex } from './jobs';
+import { jobSchema } from './validation';
 import { assertSourceApproved, changeSourceEnabled } from './source-management';
 
 export type SyncOptions = {
@@ -24,6 +25,8 @@ export type SyncOptions = {
   transport?: Transport;
   pace?: (host: string, interval: number, signal: AbortSignal) => Promise<void>;
   checkCancelled?: () => Promise<void>;
+  apifyActorId?: string;
+  suppressMissing?: boolean;
 };
 function rawRetention(value: unknown): unknown {
   const text = JSON.stringify(value ?? null);
@@ -41,7 +44,8 @@ function contentFingerprint(data: FeedJob['data']) {
     JSON.stringify(
       Object.fromEntries(
         Object.entries(values)
-          .filter(([, value]) => value !== undefined)
+          // Missing optional fields and explicit database NULL have one stable identity.
+          .filter(([, value]) => value !== undefined && value !== null)
           .sort(([a], [b]) => a.localeCompare(b)),
       ),
     ),
@@ -60,7 +64,11 @@ function permittedData(row: FeedJob, fields: string[]) {
     data.salaryPeriod = null;
   }
   if (!fields.includes('skills')) data.skills = [];
-  if (!fields.includes('employment')) data.employmentType = null;
+  if (!fields.includes('employment')) {
+    data.employmentType = null;
+    data.vacancyCount = null;
+    data.visaSponsorship = null;
+  }
   if (!fields.includes('experience')) {
     data.experienceMin = null;
     data.seniority = undefined;
@@ -101,6 +109,10 @@ export async function syncSource(
   const stats = { imported: 0, updated: 0, closed: 0, duplicates: 0, quarantined: 0, protected: 0 };
   try {
     const manual = source.provider.startsWith('manual_');
+    if (source.provider === 'manual_apify' && !options.apifyActorId)
+      throw new SourceError('SNAPSHOT_ORIGIN', 'Apify source requires the dedicated actor import');
+    if (source.provider !== 'manual_apify' && options.apifyActorId)
+      throw new SourceError('SNAPSHOT_ORIGIN', 'Apify identity is not valid for this source');
     if (manual !== Boolean(suppliedRows))
       throw new SourceError(
         'SNAPSHOT_ORIGIN',
@@ -201,6 +213,21 @@ export async function syncSource(
         .for('update');
       if (!company || company.disabled || company.verificationStatus !== 'verified')
         throw new SourceError('EMPLOYER', 'Employer is not verified and enabled');
+      if (source.provider === 'manual_apify') {
+        // The importer checks this too, but the persistence boundary must
+        // independently reject a mismatched actor or employer identity.
+        const slug = `${slugify(company.name).slice(0, 60)}-${digest(
+          `${company.name}|${company.website}`,
+        ).slice(0, 8)}`;
+        const expected = 'apify_' + digest(
+          [options.apifyActorId!.trim(), slug, company.website].join('|'),
+        ).slice(0, 40);
+        if (source.boardToken !== expected)
+          throw new SourceError(
+            'SNAPSHOT_ORIGIN',
+            'Apify actor does not match the approved employer source',
+          );
+      }
       const seen = new Set<string>();
       for (const row of snapshot.records) {
         if (Date.now() - started > 180000)
@@ -225,9 +252,9 @@ export async function syncSource(
         seen.add(row.externalId);
         const d = permittedData(row, source.permittedFields);
         const now = new Date();
-        const html = sanitizeDescription(d.descriptionHtml);
-        const text = plainText(html);
-        const fp = contentFingerprint(d);
+        let html = sanitizeDescription(d.descriptionHtml);
+        let text = plainText(html);
+        let fp = contentFingerprint(d);
         const [mapping] = await tx
           .select()
           .from(s.mappings)
@@ -236,8 +263,96 @@ export async function syncSource(
         let job = mapping
           ? (await tx.select().from(s.jobs).where(eq(s.jobs.id, mapping.jobId)).for('update'))[0]
           : undefined;
+        // A partial Apify row cannot null-out fields it did not actually contain.
+        // Routine source refreshes may edit only records still owned by this source.
+        if (job && job.sourceOwnerId === sourceId && row.fieldPresence) {
+          const incoming = d as unknown as Record<string, unknown>;
+          const previous = job as unknown as Record<string, unknown>;
+          for (const key of [
+            'locationLabel', 'country', 'region', 'city', 'workplace',
+            'remoteCountries', 'remoteEligibility', 'employmentType', 'category',
+            'seniority', 'skills', 'experienceMin', 'education', 'visaSponsorship',
+            'salaryMin', 'salaryMax', 'currency', 'salaryPeriod', 'vacancyCount',
+            'originalPostedAt', 'expiresAt',
+          ]) {
+            if (!row.fieldPresence.includes(key) && (
+              !['salaryMin', 'salaryMax', 'currency', 'salaryPeriod'].includes(key) || source.permittedFields.includes('salary')
+            ) && (
+              !['expiresAt', 'originalPostedAt'].includes(key) || source.permittedFields.includes('date')
+            ) && (
+              key !== 'skills' || source.permittedFields.includes('skills')
+            ) && (
+              !['vacancyCount', 'employmentType', 'visaSponsorship'].includes(key) || source.permittedFields.includes('employment')
+            ) && (
+              !['experienceMin', 'seniority', 'education'].includes(key) || source.permittedFields.includes('experience')
+            )) {
+              const old = previous[key];
+              incoming[key] = old instanceof Date ? old.toISOString() : old;
+            }
+          }
+          // Source metadata may change from remote to onsite/hybrid. Previous
+          // applicant-country claims do not survive such a change.
+          if (
+            row.fieldPresence.includes('workplace') &&
+            d.workplace !== 'remote' &&
+            job.workplace === 'remote'
+          ) {
+            d.remoteEligibility = 'unknown';
+            d.remoteCountries = [];
+          }
+          // Never persist a Frankenstein record assembled from individually valid
+          // snapshots. For example a new salary minimum may exceed a retained max.
+          const combined = jobSchema.safeParse(d);
+          if (!combined.success) {
+            snapshot.complete = false;
+            stats.quarantined++;
+            await tx.insert(s.ingestionErrors).values({
+              runId: run.id,
+              externalId: row.externalId,
+              stage: 'normalize',
+              reason: 'PARTIAL_MERGE_INVALID: merged job fields failed validation',
+              rawPayload: rawRetention(row.raw),
+              disposition: 'quarantined',
+            });
+            continue;
+          }
+          html = sanitizeDescription(d.descriptionHtml);
+          text = plainText(html);
+          fp = contentFingerprint(d);
+        }
+        // Historical direct Apify records have no reliable ownership marker.
+        // Flag exact-looking unowned listings for review instead of claiming them
+        // or publishing an unverified duplicate.
+        if (!job && source.provider === 'manual_apify') {
+          const [ambiguous] = await tx
+            .select({ id: s.jobs.id })
+            .from(s.jobs)
+            .where(
+              and(
+                eq(s.jobs.employerId, source.employerId),
+                isNull(s.jobs.sourceOwnerId),
+                // Titles and location labels drift between actor runs. A shared
+                // destination is ambiguous until legacy provenance is reviewed.
+                eq(s.jobs.applyUrl, canonicalApplicationUrl(d.applyUrl!)),
+              ),
+            )
+            .limit(1);
+          if (ambiguous) {
+            snapshot.complete = false;
+            stats.quarantined++;
+            await tx.insert(s.ingestionErrors).values({
+              runId: run.id,
+              externalId: row.externalId,
+              stage: 'provenance',
+              reason: 'AMBIGUOUS_LEGACY_OWNER: matching unowned job requires independent review',
+              rawPayload: rawRetention(row.raw),
+              disposition: 'quarantined',
+            });
+            continue;
+          }
+        }
         let alias = false;
-        if (!job) {
+        if (!job && source.provider !== 'manual_apify') {
           // Same employer, same application URL, compatible title/location and full description.
           // Two requisitions within one source are never merged based on a shared careers URL.
           const candidates = await tx
@@ -263,9 +378,7 @@ export async function syncSource(
         }
         const deadline = d.expiresAt ? new Date(d.expiresAt) : null;
         const knownLocation =
-          d.workplace === 'remote'
-            ? Boolean(d.remoteCountries.length)
-            : d.workplace !== 'unknown' && Boolean(d.country);
+          d.workplace === 'remote' ? true : d.workplace !== 'unknown' && Boolean(d.country);
         const publish =
           source.autoPublish &&
           knownLocation &&
@@ -282,6 +395,13 @@ export async function syncSource(
                 : publish
                   ? 'active'
                   : 'pending';
+        const effectiveStatus = job && (
+          job.status === 'rejected' ||
+          // Previously pending Apify jobs require an explicit admin publish.
+          // Resubmission after rejection/pause must not bypass human review.
+          (source.provider === 'manual_apify' && job.status === 'pending' && nextStatus === 'active') ||
+          (['closed', 'expired', 'paused'].includes(job.status) && ['active', 'pending'].includes(nextStatus))
+        ) ? job.status : nextStatus;
         const values = {
           title: d.title,
           descriptionHtml: html,
@@ -292,6 +412,7 @@ export async function syncSource(
           city: d.city ?? null,
           workplace: d.workplace,
           remoteCountries: d.remoteCountries,
+          remoteEligibility: d.remoteEligibility ?? (d.workplace === 'remote' && d.remoteCountries.length > 0 ? 'restricted' : 'unknown'),
           employmentType: d.employmentType ?? null,
           category: d.category ?? null,
           seniority: d.seniority ?? null,
@@ -303,6 +424,7 @@ export async function syncSource(
           salaryMax: d.salaryMax ?? null,
           currency: d.currency ?? null,
           salaryPeriod: d.salaryPeriod ?? null,
+          vacancyCount: d.vacancyCount ?? null,
           applicationMethod: 'external',
           resumeRequired: false,
           applyUrl: canonicalApplicationUrl(d.applyUrl!),
@@ -334,9 +456,9 @@ export async function syncSource(
         } else if (job.sourceOwnerId !== sourceId) {
           // Employer-managed records and other authoritative sources keep control of the public copy.
           stats.protected++;
-        } else if (job.fingerprint !== fp || job.status !== nextStatus) {
+        } else if (job.fingerprint !== fp || job.status !== effectiveStatus) {
           const previous = job;
-          const status = nextStatus;
+          const status = effectiveStatus;
           [job] = await tx
             .update(s.jobs)
             .set({
@@ -347,7 +469,9 @@ export async function syncSource(
               originalPostedAt:
                 job.originalPostedAt ?? (d.originalPostedAt ? new Date(d.originalPostedAt) : null),
               publishedAt: status === 'active' ? (job.publishedAt ?? now) : job.publishedAt,
-              closedAt: expired || row.linkStatus === 'gone' ? now : null,
+              closedAt: ['closed', 'expired'].includes(status)
+                ? (job.closedAt ?? now)
+                : null,
             })
             .where(eq(s.jobs.id, job.id))
             .returning();
@@ -365,7 +489,7 @@ export async function syncSource(
             },
           });
           await queueIndex(tx, job, job.status === 'active' ? 'URL_UPDATED' : 'URL_DELETED');
-        } else {
+        } else if (!job.lastVerifiedAt || now.getTime() - job.lastVerifiedAt.getTime() > 86400000) {
           await tx.update(s.jobs).set({ lastVerifiedAt: now }).where(eq(s.jobs.id, job.id));
         }
         await tx
@@ -378,6 +502,7 @@ export async function syncSource(
             rawPayload: rawRetention(row.raw),
             normalizedPayload: {
               ...d,
+              ...(row.provenance ? { provenance: row.provenance } : {}),
               ...(row.linkStatus
                 ? { linkVerification: { status: row.linkStatus, verifiedAt: now.toISOString() } }
                 : {}),
@@ -392,6 +517,7 @@ export async function syncSource(
               rawPayload: rawRetention(row.raw),
               normalizedPayload: {
                 ...d,
+                ...(row.provenance ? { provenance: row.provenance } : {}),
                 ...(row.linkStatus
                   ? { linkVerification: { status: row.linkStatus, verifiedAt: now.toISOString() } }
                   : {}),
@@ -404,7 +530,7 @@ export async function syncSource(
             },
           });
       }
-      if (snapshot.complete) {
+      if (snapshot.complete && !options.suppressMissing) {
         const mappings = await tx
           .select()
           .from(s.mappings)

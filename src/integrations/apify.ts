@@ -1,12 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import countries from 'i18n-iso-countries';
 import en from 'i18n-iso-countries/langs/en.json' with { type: 'json' };
-import { and, eq, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { syncSource } from '../domain/ingestion';
+import { sourceApproved } from '../domain/source-management';
 import { getDb } from '../db';
 import * as s from '../db/schema';
 import { env } from '../lib/config';
-import { digest, plainText, publicUrl, slugify } from '../lib/security';
+import { digest, publicUrl, slugify } from '../lib/security';
 import type { FeedJob } from './sources/contracts';
 import { normalizedRecord } from './sources/normalize';
 countries.registerLocale(en);
@@ -34,10 +35,15 @@ export type ApifyImportResult = {
   ready: number;
   imported: number;
   existing: number;
+  updated: number;
+  awaitingApproval: number;
+  quarantined: number;
+  protected: number;
   skipped: number;
 };
 type Candidate = {
   feed: FeedJob;
+  raw: Record<string, unknown>;
   employer: {
     name: string;
     slug: string;
@@ -122,40 +128,27 @@ function safeUrl(...values: unknown[]) {
   return undefined;
 }
 function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
-  const applyUrl = text(item.url);
-  if (!applyUrl) return { skip: 'missing application URL' };
+  const applyUrl = safeUrl(item.url);
+  if (!applyUrl) return { skip: 'missing or unsafe application URL' };
   const title = text(item.title);
   if (!title) return { skip: 'missing title' };
   const description = text(item.description_html) || text(item.description);
   if (!description) return { skip: 'missing description' };
   const workplaceText = text(item.ai_work_arrangement).toLowerCase();
-  const workplace = workplaceText.includes('remote')
-    ? 'remote'
-    : workplaceText.includes('hybrid')
-      ? 'hybrid'
+  const workplace = workplaceText.includes('hybrid')
+    ? 'hybrid'
+    : workplaceText.includes('remote')
+      ? 'remote'
       : workplaceText.includes('on-site') || workplaceText.includes('onsite')
         ? 'onsite'
         : 'unknown';
   const expiresAt = isoDate(item.date_valid_through);
-  if (expiresAt && Date.parse(expiresAt) <= Date.now()) return { skip: 'posting has expired' };
   const countryNames = list(item.countries_derived);
   const country = countryNames.map(countryFromName).find(Boolean);
   if (workplace !== 'remote' && !country)
     return { skip: 'missing normalized country for physical workplace' };
-  const remoteCountries = [
-    ...new Set(
-      [
-        ...list(item.ai_remote_location),
-        ...list(item.ai_remote_location_derived),
-        ...list(item.location_requirements),
-        ...countryNames,
-      ]
-        .map(countryFromName)
-        .filter((code): code is string => Boolean(code)),
-    ),
-  ];
-  if (workplace === 'remote' && remoteCountries.length === 0)
-    return { skip: 'remote role without explicit applicant countries' };
+  // Derived job geography does not establish applicant-country eligibility.
+  const remoteCountries: string[] = [];
   const salary = {
     salaryMin: number(item.ai_salary_min_value ?? item.ai_salary_value),
     salaryMax: number(item.ai_salary_max_value ?? item.ai_salary_value),
@@ -190,6 +183,8 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
       city: list(item.cities_derived)[0],
       workplace,
       remoteCountries,
+      remoteEligibility: 'unknown',
+      vacancyCount: number(item.ai_vacancies ?? item.vacancy_count),
       employmentType,
       category: list(item.ai_taxonomies_a)[0] || text(item.source) || undefined,
       seniority: experience(item.ai_experience_level).seniority,
@@ -212,14 +207,16 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
     item.org_linkedin_website,
     item.domain_derived,
     item.organization_url,
-    item.url,
   );
   if (!website) return { skip: 'missing employer website' };
+  if (item.is_active === false || ['closed', 'expired'].includes(text(item.status).toLowerCase()))
+    feed.linkStatus = 'gone';
   return {
     feed,
+    raw: item,
     employer: {
       name,
-      slug: `${slugify(name).slice(0, 60)}-${digest(`${name}|${website}`).slice(0, 8)}`,
+      slug: apifyEmployerSlug(name, website),
       website,
       description: text(item.org_linkedin_description).slice(0, 10000),
       industry: text(item.org_linkedin_industry) || undefined,
@@ -229,9 +226,18 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
     },
   };
 }
+function checkedItems(input: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(input)) throw new Error('Expected an array of Apify dataset items');
+  // Preserve invalid row counts, but never dereference null or non-object payloads.
+  return input.map((item) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? (item as Record<string, unknown>)
+      : {},
+  );
+}
 async function fetchItems(options: ApifyImportOptions): Promise<Record<string, unknown>[]> {
   if (options.datasetFile)
-    return JSON.parse(readFileSync(options.datasetFile, 'utf8')) as Record<string, unknown>[];
+    return checkedItems(JSON.parse(readFileSync(options.datasetFile, 'utf8')) as unknown);
   const token = options.token ?? process.env.APIFY_TOKEN?.trim();
   if (!token) throw new Error('APIFY_TOKEN is required (or set APIFY_DATASET_FILE)');
   const actorId = options.actorId ?? process.env.APIFY_ACTOR_ID?.trim() ?? DEFAULT_ACTOR_ID;
@@ -250,23 +256,88 @@ async function fetchItems(options: ApifyImportOptions): Promise<Record<string, u
     },
   );
   if (!response.ok)
-    throw new Error(`Apify request failed: ${response.status} ${await response.text()}`);
-  const body = (await response.json()) as unknown;
-  if (!Array.isArray(body)) throw new Error('Expected an array of dataset items');
-  return body.filter((value): value is Record<string, unknown> =>
-    Boolean(value && typeof value === 'object'),
-  );
+    // Do not expose upstream error payloads: they can contain credentials or user data.
+    throw new Error(`Apify request failed with HTTP ${response.status}`);
+  const maxResponseBytes = 25 * 1024 * 1024;
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length > maxResponseBytes)
+    throw new Error('Apify dataset response exceeds the configured safety limit');
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('Apify returned no response body');
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxResponseBytes) {
+      await reader.cancel();
+      throw new Error('Apify dataset response exceeds the configured safety limit');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return checkedItems(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
 }
+
+/** The registration token is per actor and employer. It grants no approval by itself. */
+export function apifyEmployerSlug(name: string, website: string) {
+  return `${slugify(name).slice(0, 60)}-${digest(`${name}|${website}`).slice(0, 8)}`;
+}
+export function apifyBoardToken(actorId: string, employerSlug: string, employerWebsite: string) {
+  return 'apify_' + digest([actorId.trim(), employerSlug, employerWebsite].join('|')).slice(0, 40);
+}
+
 export async function importApifyJobs(
   options: ApifyImportOptions = {},
 ): Promise<ApifyImportResult> {
   const logger = options.logger ?? (() => {});
-  const items = await fetchItems(options);
+  if (options.datasetFile && env.APP_ENV === 'production' && !options.dryRun)
+    throw new Error('Local Apify dataset files cannot be persisted in production');
+  const actorId = options.actorId?.trim() || env.APIFY_ACTOR_ID?.trim() || DEFAULT_ACTOR_ID;
+  if (!options.datasetFile && !(options.token ?? process.env.APIFY_TOKEN?.trim()))
+    throw new Error('APIFY_TOKEN is required (or set APIFY_DATASET_FILE)');
+  // Scheduled runs must not invoke a paid actor without any approved integration.
+  // Dry runs and local fixtures are explicitly review-only and may inspect candidates.
+  if (!options.dryRun && !options.datasetFile) {
+    const approved = await getDb()
+      .select({ source: s.sources, employer: s.employers })
+      .from(s.sources)
+      .innerJoin(s.employers, eq(s.sources.employerId, s.employers.id))
+      .where(eq(s.sources.provider, 'manual_apify'));
+    if (!approved.some(({ source, employer }) =>
+      source.enabled &&
+      sourceApproved(source) &&
+      source.boardToken ===
+        apifyBoardToken(actorId, apifyEmployerSlug(employer.name, employer.website), employer.website) &&
+      !employer.disabled &&
+      employer.verificationStatus === 'verified'
+    )) {
+      logger('SKIP Apify actor execution: no enabled approved source for a verified employer');
+      return {
+        fetched: 0,
+        ready: 0,
+        imported: 0,
+        updated: 0,
+        existing: 0,
+        awaitingApproval: 0,
+        quarantined: 0,
+        protected: 0,
+        skipped: 0,
+      };
+    }
+  }
+  const items = await fetchItems({ ...options, actorId });
   const candidates: Candidate[] = [];
   for (const item of items) {
     const mapped = mapItem(item);
     if ('skip' in mapped) {
-      logger(`SKIP ${text(item.title) || '(untitled)'}: ${mapped.skip}`);
+      logger('SKIP ' + (text(item.title) || '(untitled)') + ': ' + mapped.skip);
       continue;
     }
     candidates.push(mapped);
@@ -274,86 +345,143 @@ export async function importApifyJobs(
   if (options.dryRun) {
     for (const candidate of candidates)
       logger(
-        `READY ${candidate.employer.name} | ${candidate.feed.data.title} | ${candidate.feed.data.locationLabel} | ${candidate.feed.data.workplace} | ${candidate.feed.data.applicationMethod}`,
+        'READY ' + candidate.employer.name + ' | ' + candidate.feed.data.title +
+        ' | source board token ' + apifyBoardToken(actorId, candidate.employer.slug, candidate.employer.website) +
+        ' | registration and approval required',
       );
     return {
       fetched: items.length,
       ready: candidates.length,
       imported: 0,
+      updated: 0,
       existing: 0,
+      awaitingApproval: candidates.length,
+      quarantined: 0,
+      protected: 0,
       skipped: items.length - candidates.length,
     };
   }
   const db = getDb();
-  let inserted = 0;
-  let existing = 0;
-  await db.transaction(async (tx) => {
-    for (const candidate of candidates) {
-      const [foundEmployer] = await tx
-        .select()
-        .from(s.employers)
-        .where(
-          or(
-            eq(s.employers.slug, candidate.employer.slug),
-            eq(s.employers.website, candidate.employer.website),
-          ),
-        )
-        .limit(1);
-      const employer =
-        foundEmployer ??
-        (
-          await tx
-            .insert(s.employers)
-            .values({
-              id: randomUUID(),
-              ...candidate.employer,
-              verificationStatus: env.APP_ENV === 'production' ? 'pending' : 'verified',
-              isDemo: false,
-            })
-            .returning()
-        )[0];
-      const [foundJob] = await tx
-        .select({ id: s.jobs.id })
-        .from(s.jobs)
-        .where(
-          and(
-            eq(s.jobs.employerId, employer.id),
-            eq(s.jobs.applyUrl, candidate.feed.data.applyUrl!),
-          ),
-        )
-        .limit(1);
-      if (foundJob) {
-        existing++;
-        continue;
-      }
-      const data = candidate.feed.data;
-      const descriptionText = plainText(data.descriptionHtml);
-      await tx.insert(s.jobs).values({
-        ...data,
-        employerId: employer.id,
-        descriptionText,
-        slug: slugify(data.title),
-        fingerprint: digest(
-          [data.title, data.locationLabel, descriptionText, data.applyUrl ?? '']
-            .map((value) => value.toLowerCase().replace(/\s+/g, ' ').trim())
-            .join('|'),
-        ),
-        status: 'active',
-        isDemo: false,
-        originalPostedAt: data.originalPostedAt ? new Date(data.originalPostedAt) : null,
-        expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
-        firstDiscoveredAt: new Date(),
-        lastVerifiedAt: new Date(),
-        publishedAt: new Date(),
-      });
-      inserted++;
+  const registered = await db
+    .select({ source: s.sources, employer: s.employers })
+    .from(s.sources)
+    .innerJoin(s.employers, eq(s.sources.employerId, s.employers.id))
+    .where(eq(s.sources.provider, 'manual_apify'));
+  const byToken = new Map(registered.map((row) => [row.source.boardToken, row]));
+  const batches = new Map<string, FeedJob[]>();
+  let awaitingApproval = 0;
+  for (const candidate of candidates) {
+    const token = apifyBoardToken(actorId, candidate.employer.slug, candidate.employer.website);
+    const registration = byToken.get(token);
+    if (
+      !registration ||
+      registration.employer.website !== candidate.employer.website ||
+      registration.employer.name !== candidate.employer.name ||
+      registration.employer.disabled ||
+      registration.employer.verificationStatus !== 'verified' ||
+      !registration.source.enabled ||
+      !sourceApproved(registration.source)
+    ) {
+      awaitingApproval++;
+      logger('REVIEW ' + candidate.employer.name + ': no enabled, verified, approved Apify source for ' + token);
+      continue;
     }
-  });
+    const row: FeedJob = {
+      ...candidate.feed,
+      raw: candidate.raw,
+      provenance: {
+        provider: 'apify',
+        actorId,
+        originalJobUrl: candidate.feed.sourceUrl,
+        observedAt: new Date().toISOString(),
+      },
+      fieldPresence: [
+        'title',
+        'descriptionHtml',
+        'applyUrl',
+        ...(Object.hasOwn(candidate.raw, 'ai_work_arrangement') ? ['workplace'] : []),
+        ...(Object.hasOwn(candidate.raw, 'locations_derived') ||
+        Object.hasOwn(candidate.raw, 'locations_alt') ||
+        Object.hasOwn(candidate.raw, 'ai_remote_location')
+          ? ['locationLabel']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'countries_derived') ? ['country'] : []),
+        ...(Object.hasOwn(candidate.raw, 'regions_derived') ? ['region'] : []),
+        ...(Object.hasOwn(candidate.raw, 'cities_derived') ? ['city'] : []),
+        ...(Object.hasOwn(candidate.raw, 'date_posted') ? ['originalPostedAt'] : []),
+        ...(Object.hasOwn(candidate.raw, 'date_valid_through') ? ['expiresAt'] : []),
+        ...(candidate.feed.data.salaryMin != null ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_min_value') &&
+          candidate.raw.ai_salary_min_value === null)
+          ? ['salaryMin']
+          : []),
+        ...(candidate.feed.data.salaryMax != null ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_max_value') &&
+          candidate.raw.ai_salary_max_value === null)
+          ? ['salaryMax']
+          : []),
+        ...(candidate.feed.data.currency ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_currency') &&
+          candidate.raw.ai_salary_currency === null)
+          ? ['currency']
+          : []),
+        ...(candidate.feed.data.salaryPeriod ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_unit_text') &&
+          candidate.raw.ai_salary_unit_text === null)
+          ? ['salaryPeriod']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_key_skills') ? ['skills'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_employment_type') ? ['employmentType'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_taxonomies_a') ||
+        Object.hasOwn(candidate.raw, 'source')
+          ? ['category']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_experience_level')
+          ? ['seniority', 'experienceMin']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_education') ? ['education'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_visa_sponsorship')
+          ? ['visaSponsorship']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_vacancies') ||
+        Object.hasOwn(candidate.raw, 'vacancy_count')
+          ? ['vacancyCount']
+          : []),
+      ],
+    };
+    batches.set(registration.source.id, [...(batches.get(registration.source.id) ?? []), row]);
+  }
+  let imported = 0;
+  let updated = 0;
+  let existing = 0;
+  let quarantined = 0;
+  let protectedJobs = 0;
+  for (const [sourceId, records] of batches) {
+    // The actor query may be filtered, time-limited or incomplete. Never close absent jobs.
+    const result = await syncSource(sourceId, fetch, records, {
+      apifyActorId: actorId,
+      suppressMissing: true,
+    });
+    imported += result.imported;
+    updated += result.updated;
+    quarantined += result.quarantined;
+    protectedJobs += result.protected;
+    // Rejected and protected rows are not successful existing-job refreshes.
+    existing += Math.max(
+      0,
+      result.count - result.imported - result.quarantined - result.protected,
+    );
+    logger('SYNC ' + sourceId + ': ' + result.imported + ' created, ' + result.updated + ' updated, ' + result.quarantined + ' quarantined');
+  }
   return {
     fetched: items.length,
     ready: candidates.length,
-    imported: inserted,
+    imported,
+    updated,
     existing,
-    skipped: items.length - candidates.length,
+    awaitingApproval,
+    quarantined,
+    protected: protectedJobs,
+    skipped: items.length - candidates.length + awaitingApproval + quarantined + protectedJobs,
   };
 }

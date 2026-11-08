@@ -22,6 +22,7 @@
     "db:seed": "node --env-file-if-exists=.env --import tsx scripts/seed.ts",
     "db:seed-test-jobs": "node --env-file-if-exists=.env --import tsx scripts/seed-test-jobs.ts",
     "apify:import": "node --env-file-if-exists=.env --import tsx scripts/apify-import.ts",
+    "apify:reconcile": "node --env-file-if-exists=.env --import tsx scripts/apify-reconcile.ts",
     "worker": "node --env-file-if-exists=.env --import tsx src/worker/main.ts",
     "admin:grant": "node --env-file-if-exists=.env --import tsx scripts/admin.ts",
     "admin:create": "node --env-file-if-exists=.env --import tsx scripts/create-admin.ts",

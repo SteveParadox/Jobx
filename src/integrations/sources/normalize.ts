@@ -14,6 +14,28 @@ const sourceJobSchema = z
     resumeRequired: z.literal(false).default(false),
   })
   .superRefine((job, ctx) => {
+    // This schema reuses jobSchema.shape but does not inherit jobSchema's
+    // cross-field refinements. Enforce remote eligibility here as well.
+    if (job.workplace === 'remote') {
+      if (job.remoteEligibility === 'restricted' && !job.remoteCountries.length)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['remoteCountries'],
+          message: 'Restricted remote eligibility requires confirmed applicant countries',
+        });
+      if (job.remoteEligibility === 'worldwide' && job.remoteCountries.length)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['remoteCountries'],
+          message: 'Worldwide eligibility cannot be combined with country restrictions',
+        });
+    } else if (job.remoteEligibility && job.remoteEligibility !== 'unknown') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['remoteEligibility'],
+        message: 'Remote applicant eligibility requires a fully remote role',
+      });
+    }
     if (!job.applyUrl)
       ctx.addIssue({ code: 'custom', message: 'Authentic application URL is required' });
     if (plainText(job.descriptionHtml).length < 80)
@@ -111,6 +133,7 @@ export function normalizedRecord(input: unknown, baseUrl?: string): FeedJob {
     country,
     workplace: record.workplace ?? 'unknown',
     remoteCountries: record.remoteCountries ?? [],
+    remoteEligibility: record.remoteEligibility ?? (record.workplace === 'remote' && Array.isArray(record.remoteCountries) && record.remoteCountries.length > 0 ? 'restricted' : 'unknown'),
     skills: record.skills ?? [],
     applicationMethod: 'external',
     resumeRequired: false,
@@ -216,7 +239,7 @@ export function validateSnapshot(
         !ctx.source.applicationHostnames.includes(sourceHost)
       )
         throw new SourceError('SOURCE_HOST', 'Job-page attribution hostname has not been approved');
-      return { ...normalized, raw: row.raw };
+      return { ...normalized, raw: row.raw, provenance: row.provenance, fieldPresence: row.fieldPresence, linkStatus: row.linkStatus };
     },
     snapshot.requests,
   );

@@ -105,6 +105,7 @@ export async function saveJob(
     ...data,
     descriptionHtml,
     descriptionText,
+    remoteEligibility: data.remoteEligibility ?? (data.workplace === 'remote' && data.remoteCountries.length > 0 ? 'restricted' : 'unknown'),
     slug: slugify(data.title),
     fingerprint: fingerprint(data.title, data.locationLabel, descriptionText, data.applyUrl ?? ''),
     originalPostedAt: data.originalPostedAt ? new Date(data.originalPostedAt) : null,

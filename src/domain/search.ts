@@ -31,6 +31,7 @@ export const publicJobFields = {
   city: jobs.city,
   workplace: jobs.workplace,
   remoteCountries: jobs.remoteCountries,
+  remoteEligibility: jobs.remoteEligibility,
   employmentType: jobs.employmentType,
   seniority: jobs.seniority,
   category: jobs.category,
@@ -42,6 +43,7 @@ export const publicJobFields = {
   salaryMax: jobs.salaryMax,
   currency: jobs.currency,
   salaryPeriod: jobs.salaryPeriod,
+  vacancyCount: jobs.vacancyCount,
   applicationMethod: jobs.applicationMethod,
   resumeRequired: jobs.resumeRequired,
   applyUrl: jobs.applyUrl,
@@ -106,7 +108,13 @@ export function searchConditions(f: SearchFilters, now = new Date()) {
     conditions.push(
       and(
         eq(jobs.workplace, 'remote'),
-        sql`${jobs.remoteCountries} @> ARRAY[${f.eligibleCountry.toUpperCase()}]::text[]`,
+        or(
+          eq(jobs.remoteEligibility, 'worldwide'),
+          and(
+            eq(jobs.remoteEligibility, 'restricted'),
+            sql`${jobs.remoteCountries} @> ARRAY[${f.eligibleCountry.toUpperCase()}]::text[]`,
+          ),
+        ),
       ),
     );
   if (f.visa) conditions.push(eq(jobs.visaSponsorship, f.visa === 'true'));
