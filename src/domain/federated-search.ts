@@ -135,7 +135,14 @@ export async function federatedSearch(input: unknown) {
         }
         await rateLimit('federated:provider:himalayas:day', 80, 86400);
         const leads = await fetchHimalayas({ q: options.q, page: options.page, country });
-        if (redis) await redis.set(cacheKey, JSON.stringify(leads), 'EX', 21600);
+        if (redis) {
+          try {
+            await redis.set(cacheKey, JSON.stringify(leads), 'EX', 21600);
+          } catch {
+            // Best-effort cache: the upstream request already passed its budget guard.
+            // Preserve valid results if Redis fails after the fetch.
+          }
+        }
         return leads;
       }, options.location
         ? 'Himalayas has no city-level location filter; results use the selected country or worldwide.'
