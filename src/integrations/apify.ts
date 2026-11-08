@@ -265,6 +265,30 @@ export async function importApifyJobs(
   if (options.datasetFile && env.APP_ENV === 'production' && !options.dryRun)
     throw new Error('Local Apify dataset files cannot be persisted in production');
   const actorId = options.actorId?.trim() || env.APIFY_ACTOR_ID?.trim() || DEFAULT_ACTOR_ID;
+  // Scheduled runs must not invoke a paid actor without any approved integration.
+  // Dry runs and local fixtures are explicitly review-only and may inspect candidates.
+  if (!options.dryRun && !options.datasetFile) {
+    const approved = await getDb()
+      .select({ source: s.sources, employer: s.employers })
+      .from(s.sources)
+      .innerJoin(s.employers, eq(s.sources.employerId, s.employers.id))
+      .where(eq(s.sources.provider, 'manual_apify'));
+    if (!approved.some(({ source, employer }) =>
+      source.enabled && sourceApproved(source) &&
+      !employer.disabled && employer.verificationStatus === 'verified'
+    )) {
+      logger('SKIP Apify actor execution: no enabled approved source for a verified employer');
+      return {
+        fetched: 0,
+        ready: 0,
+        imported: 0,
+        updated: 0,
+        existing: 0,
+        awaitingApproval: 0,
+        skipped: 0,
+      };
+    }
+  }
   const items = await fetchItems({ ...options, actorId });
   const candidates: Candidate[] = [];
   for (const item of items) {
