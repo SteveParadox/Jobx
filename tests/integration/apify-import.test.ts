@@ -239,9 +239,16 @@ describe('Apify approval, provenance, refresh and publication', () => {
     await ctx.db.update(s.jobs).set({ status: 'rejected' }).where(eq(s.jobs.id, job.id));
     await run();
     expect((await ctx.db.select().from(s.jobs))[0].status).toBe('rejected');
-    await ctx.db.update(s.jobs).set({ status: 'closed' }).where(eq(s.jobs.id, job.id));
+    const closedAt = new Date('2024-05-01T00:00:00.000Z');
+    await ctx.db.update(s.jobs).set({ status: 'closed', closedAt }).where(eq(s.jobs.id, job.id));
+    await feed([{
+      ...item(),
+      description_html: description + '<p>Added updated responsibilities for archived job.</p>',
+    }]);
     await run();
-    expect((await ctx.db.select().from(s.jobs))[0].status).toBe('closed');
+    const [closed] = await ctx.db.select().from(s.jobs);
+    expect(closed.status).toBe('closed');
+    expect(closed.closedAt?.toISOString()).toBe(closedAt.toISOString());
   });
 
   it('honors explicit closure and never interprets a filtered snapshot as removal', async () => {
