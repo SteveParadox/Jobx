@@ -248,7 +248,7 @@ export async function syncSource(
         // A partial Apify row cannot null-out fields it did not actually contain.
         // Routine source refreshes may edit only records still owned by this source.
         if (job && job.sourceOwnerId === sourceId && row.fieldPresence) {
-          const incoming = d as Record<string, unknown>;
+          const incoming = d as unknown as Record<string, unknown>;
           const previous = job as unknown as Record<string, unknown>;
           for (const key of [
             'locationLabel', 'country', 'region', 'city', 'employmentType', 'category',
@@ -256,7 +256,15 @@ export async function syncSource(
             'salaryMin', 'salaryMax', 'currency', 'salaryPeriod', 'vacancyCount',
             'originalPostedAt', 'expiresAt',
           ]) {
-            if (!row.fieldPresence.includes(key)) {
+            if (!row.fieldPresence.includes(key) && (
+              !['salaryMin', 'salaryMax', 'currency', 'salaryPeriod'].includes(key) || source.permittedFields.includes('salary')
+            ) && (
+              !['expiresAt', 'originalPostedAt'].includes(key) || source.permittedFields.includes('date')
+            ) && (
+              key !== 'skills' || source.permittedFields.includes('skills')
+            ) && (
+              !['vacancyCount', 'employmentType'].includes(key) || source.permittedFields.includes('employment')
+            )) {
               const old = previous[key];
               incoming[key] = old instanceof Date ? old.toISOString() : old;
             }
@@ -266,7 +274,7 @@ export async function syncSource(
           fp = contentFingerprint(d);
         }
         let alias = false;
-        if (!job) {
+        if (!job && source.provider !== 'manual_apify') {
           // Same employer, same application URL, compatible title/location and full description.
           // Two requisitions within one source are never merged based on a shared careers URL.
           const candidates = await tx
