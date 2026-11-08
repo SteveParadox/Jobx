@@ -293,6 +293,7 @@ export async function syncSource(
             )
             .limit(1);
           if (ambiguous) {
+            snapshot.complete = false;
             stats.quarantined++;
             await tx.insert(s.ingestionErrors).values({
               runId: run.id,
