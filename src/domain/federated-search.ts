@@ -62,10 +62,14 @@ export async function federatedSearch(input: unknown) {
     note: string,
     jobs: SearchLead[] = [],
   ) => outputs.set(provider, { status: { provider, state, note, count: jobs.length }, jobs });
-  const execute = (provider: ProviderId, action: () => Promise<SearchLead[]>) => {
+  const execute = (
+    provider: ProviderId,
+    action: () => Promise<SearchLead[]>,
+    note = 'Fetched from the declared source.',
+  ) => {
     tasks.push(
       action()
-        .then((jobs) => { setStatus(provider, 'ok', 'Fetched from the declared source.', jobs); })
+        .then((jobs) => { setStatus(provider, 'ok', note, jobs); })
         .catch(() => {
           // Never disclose provider request URLs: some contain API keys.
           setStatus(provider, 'error', 'Provider could not be reached or returned invalid data.');
@@ -126,7 +130,9 @@ export async function federatedSearch(input: unknown) {
         const leads = await fetchHimalayas({ q: options.q, page: options.page, country });
         if (redis) await redis.set(cacheKey, JSON.stringify(leads), 'EX', 21600);
         return leads;
-      });
+      }, options.location
+        ? 'Himalayas has no city-level location filter; results use the selected country or worldwide.'
+        : 'Fetched remote vacancies from Himalayas.');
   }
 
   if (selected('adzuna')) {
