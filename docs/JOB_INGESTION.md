@@ -1,5 +1,7 @@
 # Autonomous authorized ingestion
 
+See [Apify actor source authorization, eligibility and reconciliation](APIFY_IMPORT_POLICY.md) for the dedicated actor importer and the non-destructive handling of historical listings.
+
 This subsystem runs in the persistent worker. Source registration, permission review and task creation are HTTP operations; fetching, browser execution, normalization, persistence and reconciliation are background work. No real source is enabled by default, and no source redistribution license is claimed by this repository.
 
 ## Adapters and discovery
