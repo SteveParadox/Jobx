@@ -5,7 +5,7 @@
  * assert redistribution permission, or approve publication. Those decisions
  * remain with the existing source-management authorization workflow.
  */
-export type AtsProvider = 'greenhouse' | 'lever' | 'lever_eu' | 'ashby';
+export type AtsProvider = 'greenhouse' | 'lever' | 'lever_eu' | 'ashby' | 'smartrecruiters';
 export type CandidateState = 'DISCOVERED' | 'IDENTIFIED' | 'REVIEW_REQUIRED' | 'REJECTED';
 
 export interface DiscoveryEvidence {
@@ -98,6 +98,12 @@ export function detectAts(input: string): { provider: AtsProvider; boardToken: s
     const token = path[0];
     return token && /^[a-z0-9_-]{1,100}$/i.test(token)
       ? { provider: 'lever_eu', boardToken: token }
+      : null;
+  }
+  if (host === 'jobs.smartrecruiters.com' || host === 'careers.smartrecruiters.com') {
+    const token = path[0];
+    return token && /^[a-z0-9_-]{1,100}$/i.test(token)
+      ? { provider: 'smartrecruiters', boardToken: token }
       : null;
   }
   if (host === 'jobs.ashbyhq.com') {

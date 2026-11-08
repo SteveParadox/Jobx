@@ -176,7 +176,7 @@ export interface SourceAdapter {
   discover: (source: Pick<Source, 'boardToken' | 'endpointUrl'>) => string;
   fetch: (context: SourceContext) => Promise<Snapshot>;
 }
-export const ATS_PROVIDERS = ['greenhouse', 'lever', 'lever_eu', 'ashby'] as const;
+export const ATS_PROVIDERS = ['greenhouse', 'lever', 'lever_eu', 'ashby', 'smartrecruiters'] as const;
 export const NETWORK_PROVIDERS = [
   ...ATS_PROVIDERS,
   'authorized_json',

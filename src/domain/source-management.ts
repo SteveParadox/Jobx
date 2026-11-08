@@ -49,7 +49,7 @@ function values(input: unknown) {
       'Keep source credentials in the worker secret manager, not endpoint URLs',
     );
   if (
-    data.provider.match(/^(greenhouse|lever|lever_eu|ashby)$/) &&
+    data.provider.match(/^(greenhouse|lever|lever_eu|ashby|smartrecruiters)$/) &&
     data.endpointUrl &&
     data.endpointUrl !== endpointUrl
   )

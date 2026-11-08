@@ -13,6 +13,7 @@ import {
   type SourceContext,
 } from './contracts';
 import { normalizedRecord, readPath, snapshotFromRows } from './normalize';
+import { smartRecruitersAdapter } from './smartrecruiters';
 
 function json(body: string) {
   try {
@@ -396,7 +397,7 @@ const custom: SourceAdapter[] = [
     fetch: async (ctx) => (await import('./browser')).fetchBrowser(ctx),
   },
 ];
-const registry = new Map([...atsAdapters, ...custom].map((adapter) => [adapter.provider, adapter]));
+const registry = new Map([...atsAdapters, smartRecruitersAdapter, ...custom].map((adapter) => [adapter.provider, adapter]));
 export function sourceAdapter(provider: string) {
   const adapter = registry.get(provider);
   if (!adapter) throw new SourceError('PROVIDER', 'Unsupported source adapter');
