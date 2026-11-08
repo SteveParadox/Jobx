@@ -14,7 +14,12 @@ export function eligible(job: PublicJob) {
     new Date(job.originalPostedAt!) <= new Date() &&
     job.descriptionText.length >= 80 &&
     Boolean(job.companyName) &&
-    Boolean(job.workplace === 'remote' ? (job.remoteEligibility === 'worldwide' || (job.remoteEligibility === 'restricted' && job.remoteCountries.length > 0)) : job.country)
+    Boolean(
+      job.workplace === 'remote'
+        ? job.remoteEligibility === 'worldwide' ||
+            (job.remoteEligibility === 'restricted' && job.remoteCountries.length > 0)
+        : job.country,
+    )
   );
 }
 export function jobSchema(job: PublicJob) {
@@ -35,10 +40,14 @@ export function jobSchema(job: PublicJob) {
     ...(job.workplace === 'remote'
       ? {
           jobLocationType: 'TELECOMMUTE',
-          ...(job.remoteEligibility === 'restricted' ? { applicantLocationRequirements: job.remoteCountries.map((name) => ({
-            '@type': 'Country',
-            name,
-          })) } : {}),
+          ...(job.remoteEligibility === 'restricted'
+            ? {
+                applicantLocationRequirements: job.remoteCountries.map((name) => ({
+                  '@type': 'Country',
+                  name,
+                })),
+              }
+            : {}),
         }
       : {
           jobLocation: {
