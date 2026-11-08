@@ -74,7 +74,7 @@ describe('JobPosting generation', () => {
   it('does not infer worldwide eligibility from an unknown remote location', () => {
     expect(jobSchema({ ...fixture, workplace: 'remote', remoteEligibility: 'unknown', remoteCountries: [] })).toBeNull();
     const worldwide = jobSchema({ ...fixture, workplace: 'remote', remoteEligibility: 'worldwide', remoteCountries: [] })!;
-    expect(worldwide.jobLocationType).toBe('TELECOMMUTE');
+    expect(worldwide).toHaveProperty('jobLocationType', 'TELECOMMUTE');
     expect(worldwide).not.toHaveProperty('applicantLocationRequirements');
   });
   it('omits expired, demo, undated and insufficiently located records', () => {
