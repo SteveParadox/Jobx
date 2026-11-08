@@ -46,6 +46,11 @@ describe('personal search matching rules', () => {
       'Java',
     ]);
   });
+  it('finds a later bounded occurrence after an embedded substring', () => {
+    expect(overlappingSkills({
+      skills: [], title: 'JavaScript and Java Engineer', descriptionText: '',
+    }, ['Java'])).toEqual(['Java']);
+  });
   it('ignores descriptions for short ambiguous skills', () => {
     expect(overlappingSkills({
       skills: [], title: 'Software Engineer', descriptionText: 'We go beyond expectations.',
