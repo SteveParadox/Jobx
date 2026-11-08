@@ -69,6 +69,10 @@ Official documentation: https://himalayas.app/docs/remote-jobs-api
   80-upstream-request/day safety budget and a six-hour Redis cache keyed by
   normalized query/country/page. Additional requests may receive 429. A key
   grants greater quotas but is **not required** for this integration.
+- The API publishes Unix-second timestamps; Jobx normalizes them before date
+  display and expiry checks. Its search endpoint returns up to 20 results per
+  page, which Jobx retains. Provider application links are preserved verbatim,
+  including attribution parameters.
 - The API data is refreshed about daily. Expired jobs are filtered when the
   upstream provides an expiry date. Listings do not enter the Jobx published
   catalog, Google Jobs schema, indexing feeds or third-party aggregators.
@@ -101,8 +105,10 @@ are configured.
   at, ch, it, es, pl, in, sg, nz, za, br and mx. Other countries do not map to
   an Adzuna marketplace. No country's market is silently chosen for all users.
 - The service caps automatic multi-market queries at two markets per search,
-  with at most 90 authenticated provider calls per day globally; note each
-  two-market search can consume two upstream API requests.
+  with at most 90 provider requests per day globally. Each market is metered
+  separately. Markets are fetched concurrently, and a partial-coverage status
+  identifies any market failures. This limit is only a defensive application cap,
+  not a promise of entitlement under an Adzuna plan.
 
 ### USAJOBS
 
@@ -131,8 +137,8 @@ are configured.
 
 ## Trust and security boundaries
 
-- The route requires an authenticated Jobx session, with per-account limits of
-  four searches per minute; upstream providers also have distributed, hashed-key
+- The route requires an authenticated, email-verified Jobx session, with a
+  per-account cap of ten searches per minute; upstream providers also have distributed, hashed-key
   global Redis budgets. Redis must be configured in production.
 - No user profile, CV, skills, account identifier, search history, or email is
   shared with partners. The external request contains the user-entered search
@@ -142,8 +148,14 @@ are configured.
   Provider credentials never appear in public API responses or rendered pages.
 - Display links are restricted to source-provider HTTPS domains. Never fetch
   those returned links from the server or use them as ingestion authority.
-- If a provider fails, its status is reported and other sources still work.
-  No empty/failing provider is represented as "zero jobs exist".
+- If a provider fails or returns an invalid JSON envelope, its status is
+  reported and other sources still work. Partially successful Adzuna
+  multi-market queries are marked partial. No empty/failing provider is
+  represented as "zero jobs exist".
+- Provider search links preserve upstream attribution and application tracking,
+  not merely a generic normalized URL. The result UI shows each source by name.
+- The free Himalayas API has no city-level filter; when a user enters a city,
+  Jobx identifies the limitation rather than implying the city was applied.
 - API content is ephemeral and is **not indexed, cached in user search history,
   inserted into Jobx jobs, or automatically re-distributed**. Contract-specific
   retention and removal requirements must be reviewed before any future storage.
@@ -154,7 +166,7 @@ are configured.
 
 The default actor input no longer hardcodes a Nigeria country filter or a
 specific shortlist of professional titles. It retains a bounded 24-hour window
-and a 100-item per-run limit, and operators can supply explicit actor-approved
+and a 20-item per-run limit, and operators can supply explicit actor-approved
 search parameters through `APIFY_INPUT`. Verify that the configured actor
 accepts this input shape in staging. The importer still requires a separately
 approved and enabled per-employer `manual_apify` source; it does not auto-approve
