@@ -470,8 +470,8 @@ function JobEditor({
           region: optional('region'),
           city: optional('city'),
           workplace: value('workplace'),
-           remoteEligibility: value('remoteEligibility'),
-           vacancyCount: number('vacancyCount'),
+          remoteEligibility: value('remoteEligibility'),
+          vacancyCount: number('vacancyCount'),
           remoteCountries: value('remoteCountries')
             .split(',')
             .map((v) => v.trim().toUpperCase())
@@ -548,26 +548,22 @@ function JobEditor({
       </label>
       <label>
         Employer-confirmed remote applicant eligibility
-
         <select name="remoteEligibility" defaultValue={job?.remoteEligibility ?? 'unknown'}>
-
           <option value="unknown">Unknown / unconfirmed</option>
-
           <option value="restricted">Only the countries listed below</option>
-
           <option value="worldwide">Explicitly worldwide</option>
-
         </select>
-
       </label>
-
       <label>
         Vacancy count
-
-        <input name="vacancyCount" type="number" min="0" max="1000000" defaultValue={job?.vacancyCount ?? ''} />
-
+        <input
+          name="vacancyCount"
+          type="number"
+          min="0"
+          max="1000000"
+          defaultValue={job?.vacancyCount ?? ''}
+        />
       </label>
-
       <label>
         Remote applicant country codes (comma separated)
         <input name="remoteCountries" defaultValue={job?.remoteCountries.join(', ')} />
