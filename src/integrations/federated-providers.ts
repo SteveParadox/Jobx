@@ -187,6 +187,7 @@ export function parseHimalayas(payload: unknown, now = Date.now()): SearchLead[]
     .map((raw) => {
       const job = obj(raw);
       const expiry = date(job.expiryDate);
+      if (job.expiryDate != null && !expiry) return null;
       if (expiry && Date.parse(expiry) <= now) return null;
       const item = lead(
         'himalayas',
@@ -385,13 +386,19 @@ export function cachedHimalayas(value: unknown, now = Date.now()): SearchLead[] 
       item.attributionUrl !== 'https://himalayas.app' ||
       item.attributionLogoUrl !== null ||
       typeof item.id !== 'string' ||
+      item.id.length > 181 ||
       typeof item.title !== 'string' ||
+      item.title.length > 180 ||
       typeof item.company !== 'string' ||
+      item.company.length > 160 ||
       typeof item.location !== 'string' ||
+      item.location.length > 200 ||
       typeof item.excerpt !== 'string' ||
+      item.excerpt.length > 360 ||
       typeof item.url !== 'string' ||
       safeProviderUrl(item.url, 'himalayas.app') !== item.url ||
-      (item.postedAt !== null && typeof item.postedAt !== 'string') ||
+      (item.postedAt !== null &&
+        (typeof item.postedAt !== 'string' || !Number.isFinite(Date.parse(item.postedAt)))) ||
       (item.expiresAt !== null &&
         item.expiresAt !== undefined &&
         typeof item.expiresAt !== 'string')
