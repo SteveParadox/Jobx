@@ -251,7 +251,8 @@ export async function syncSource(
           const incoming = d as unknown as Record<string, unknown>;
           const previous = job as unknown as Record<string, unknown>;
           for (const key of [
-            'locationLabel', 'country', 'region', 'city', 'employmentType', 'category',
+            'locationLabel', 'country', 'region', 'city', 'workplace',
+            'remoteCountries', 'remoteEligibility', 'employmentType', 'category',
             'seniority', 'skills', 'experienceMin', 'education', 'visaSponsorship',
             'salaryMin', 'salaryMax', 'currency', 'salaryPeriod', 'vacancyCount',
             'originalPostedAt', 'expiresAt',
