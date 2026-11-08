@@ -254,8 +254,33 @@ async function fetchItems(options: ApifyImportOptions): Promise<Record<string, u
     },
   );
   if (!response.ok)
-    throw new Error(`Apify request failed: ${response.status} ${await response.text()}`);
-  return checkedItems((await response.json()) as unknown);
+    // Do not expose upstream error payloads: they can contain credentials or user data.
+    throw new Error(`Apify request failed with HTTP ${response.status}`);
+  const maxResponseBytes = 25 * 1024 * 1024;
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length > maxResponseBytes)
+    throw new Error('Apify dataset response exceeds the configured safety limit');
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('Apify returned no response body');
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxResponseBytes) {
+      await reader.cancel();
+      throw new Error('Apify dataset response exceeds the configured safety limit');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return checkedItems(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
 }
 
 /** The registration token is per actor and employer. It grants no approval by itself. */
