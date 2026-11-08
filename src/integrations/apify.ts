@@ -214,7 +214,7 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
     raw: item,
     employer: {
       name,
-      slug: `${slugify(name).slice(0, 60)}-${digest(`${name}|${website}`).slice(0, 8)}`,
+      slug: apifyEmployerSlug(name, website),
       website,
       description: text(item.org_linkedin_description).slice(0, 10000),
       industry: text(item.org_linkedin_industry) || undefined,
@@ -224,9 +224,18 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
     },
   };
 }
+function checkedItems(input: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(input)) throw new Error('Expected an array of Apify dataset items');
+  // Preserve invalid row counts, but never dereference null or non-object payloads.
+  return input.map((item) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? (item as Record<string, unknown>)
+      : {},
+  );
+}
 async function fetchItems(options: ApifyImportOptions): Promise<Record<string, unknown>[]> {
   if (options.datasetFile)
-    return JSON.parse(readFileSync(options.datasetFile, 'utf8')) as Record<string, unknown>[];
+    return checkedItems(JSON.parse(readFileSync(options.datasetFile, 'utf8')) as unknown);
   const token = options.token ?? process.env.APIFY_TOKEN?.trim();
   if (!token) throw new Error('APIFY_TOKEN is required (or set APIFY_DATASET_FILE)');
   const actorId = options.actorId ?? process.env.APIFY_ACTOR_ID?.trim() ?? DEFAULT_ACTOR_ID;
@@ -246,14 +255,13 @@ async function fetchItems(options: ApifyImportOptions): Promise<Record<string, u
   );
   if (!response.ok)
     throw new Error(`Apify request failed: ${response.status} ${await response.text()}`);
-  const body = (await response.json()) as unknown;
-  if (!Array.isArray(body)) throw new Error('Expected an array of dataset items');
-  return body.filter((value): value is Record<string, unknown> =>
-    Boolean(value && typeof value === 'object'),
-  );
+  return checkedItems((await response.json()) as unknown);
 }
 
 /** The registration token is per actor and employer. It grants no approval by itself. */
+export function apifyEmployerSlug(name: string, website: string) {
+  return `${slugify(name).slice(0, 60)}-${digest(`${name}|${website}`).slice(0, 8)}`;
+}
 export function apifyBoardToken(actorId: string, employerSlug: string, employerWebsite: string) {
   return 'apify_' + digest([actorId.trim(), employerSlug, employerWebsite].join('|')).slice(0, 40);
 }
@@ -265,6 +273,8 @@ export async function importApifyJobs(
   if (options.datasetFile && env.APP_ENV === 'production' && !options.dryRun)
     throw new Error('Local Apify dataset files cannot be persisted in production');
   const actorId = options.actorId?.trim() || env.APIFY_ACTOR_ID?.trim() || DEFAULT_ACTOR_ID;
+  if (!options.datasetFile && !(options.token ?? process.env.APIFY_TOKEN?.trim()))
+    throw new Error('APIFY_TOKEN is required (or set APIFY_DATASET_FILE)');
   // Scheduled runs must not invoke a paid actor without any approved integration.
   // Dry runs and local fixtures are explicitly review-only and may inspect candidates.
   if (!options.dryRun && !options.datasetFile) {
@@ -274,8 +284,12 @@ export async function importApifyJobs(
       .innerJoin(s.employers, eq(s.sources.employerId, s.employers.id))
       .where(eq(s.sources.provider, 'manual_apify'));
     if (!approved.some(({ source, employer }) =>
-      source.enabled && sourceApproved(source) &&
-      !employer.disabled && employer.verificationStatus === 'verified'
+      source.enabled &&
+      sourceApproved(source) &&
+      source.boardToken ===
+        apifyBoardToken(actorId, apifyEmployerSlug(employer.name, employer.website), employer.website) &&
+      !employer.disabled &&
+      employer.verificationStatus === 'verified'
     )) {
       logger('SKIP Apify actor execution: no enabled approved source for a verified employer');
       return {
@@ -331,7 +345,7 @@ export async function importApifyJobs(
     if (
       !registration ||
       registration.employer.website !== candidate.employer.website ||
-      registration.employer.name.trim().toLowerCase() !== candidate.employer.name.trim().toLowerCase() ||
+      registration.employer.name !== candidate.employer.name ||
       registration.employer.disabled ||
       registration.employer.verificationStatus !== 'verified' ||
       !registration.source.enabled ||
