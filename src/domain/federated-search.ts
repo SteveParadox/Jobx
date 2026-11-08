@@ -159,7 +159,7 @@ export async function federatedSearch(input: unknown) {
       setStatus('jooble', 'not_configured', 'A Jooble key and its exact regional market must be configured.');
     else if (options.remoteOnly === 'true')
       setStatus('jooble', 'skipped', 'This adapter cannot establish an exact remote-only feed.');
-    else if (options.market && options.market !== region)
+    else if (options.market && options.market !== (region === 'uk' ? 'gb' : region))
       setStatus('jooble', 'skipped', 'The configured Jooble key covers a different national market.');
     else if (!options.location)
       setStatus('jooble', 'skipped', 'Provide a location to search the configured Jooble region.');
@@ -177,9 +177,13 @@ export async function federatedSearch(input: unknown) {
   await Promise.all(tasks);
   // Preserve each provider's relevance ordering. Rankings cannot be compared across APIs.
   const grouped = providerOrder.flatMap((id) => outputs.get(id)?.jobs ?? []);
+  const providers = providerOrder.flatMap((id) => {
+    const item = outputs.get(id);
+    return item ? [item.status] : [];
+  });
   return {
     items: uniqueLeads(grouped, 75),
-    providers: providerOrder.flatMap((id) => outputs.get(id)?.status ? [outputs.get(id)!.status] : []),
+    providers,
     query: options,
     checkedAt: new Date().toISOString(),
     explanation:
