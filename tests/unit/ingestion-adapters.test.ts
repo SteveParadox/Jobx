@@ -181,6 +181,35 @@ describe('source HTTP boundaries', () => {
   });
 });
 describe('authorized source adapters', () => {
+  it('enforces remote applicant eligibility across source normalization', () => {
+    const base = {
+      externalId: 'eligibility-fixture',
+      title: 'Remote Infrastructure Engineer',
+      sourceUrl: 'https://careers.example.com/jobs/eligibility',
+      applyUrl: 'https://careers.example.com/jobs/eligibility/apply',
+      descriptionHtml: description,
+      workplace: 'remote',
+      locationLabel: 'Remote',
+      remoteCountries: [],
+    };
+    expect(normalizedRecord({ ...base, remoteEligibility: 'unknown' }).data).toMatchObject({
+      workplace: 'remote',
+      remoteEligibility: 'unknown',
+      remoteCountries: [],
+    });
+    expect(() =>
+      normalizedRecord({ ...base, remoteEligibility: 'restricted' }),
+    ).toThrow();
+    expect(() =>
+      normalizedRecord({ ...base, remoteEligibility: 'worldwide', remoteCountries: ['NG'] }),
+    ).toThrow();
+    expect(() =>
+      normalizedRecord({ ...base, workplace: 'hybrid', country: 'NG', remoteEligibility: 'worldwide' }),
+    ).toThrow();
+    expect(normalizedRecord({ ...base, remoteEligibility: 'restricted', remoteCountries: ['NG'] }).data.remoteCountries).toEqual(['NG']);
+    expect(normalizedRecord({ ...base, remoteEligibility: 'worldwide' }).data.remoteEligibility).toBe('worldwide');
+    expect(() => normalizedRecord({ ...base, vacancyCount: -1 })).toThrow();
+  });
   it('normalizes explicit ISO codes and XML scalar values without guessing remote eligibility', () => {
     const row = normalizedRecord({
       externalId: 'iso-fixture',
