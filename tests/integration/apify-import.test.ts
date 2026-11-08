@@ -194,6 +194,41 @@ describe('Apify approval, provenance, refresh and publication', () => {
     expect(job.vacancyCount).toBeNull();
   });
 
+  it('quarantines a partial salary refresh that conflicts with a retained maximum', async () => {
+    await authorize();
+    await run();
+    const [original] = await ctx.db.select().from(s.jobs);
+    const changed: Record<string, unknown> = { ...item(), ai_salary_min_value: 90000 };
+    delete changed.ai_salary_max_value;
+    await feed([changed]);
+    const result = await run();
+    expect(result.updated).toBe(0);
+    expect(result.quarantined).toBeUndefined();
+    const [unchanged] = await ctx.db.select().from(s.jobs);
+    expect(unchanged.salaryMin).toBe(60000);
+    expect(unchanged.salaryMax).toBe(80000);
+    expect(unchanged.version).toBe(original.version);
+    expect((await ctx.db.select().from(s.ingestionErrors)).some(
+      (entry) => entry.reason.includes('PARTIAL_MERGE_INVALID'),
+    )).toBe(true);
+  });
+
+  it('clears outdated applicant-country claims when a remote role becomes onsite', async () => {
+    await authorize();
+    await run();
+    const [original] = await ctx.db.select().from(s.jobs);
+    await ctx.db.update(s.jobs).set({
+      remoteEligibility: 'restricted',
+      remoteCountries: ['NG'],
+    }).where(eq(s.jobs.id, original.id));
+    await feed([{ ...item(), ai_work_arrangement: 'Onsite' }]);
+    expect((await run()).updated).toBe(1);
+    const [updated] = await ctx.db.select().from(s.jobs);
+    expect(updated.workplace).toBe('onsite');
+    expect(updated.remoteEligibility).toBe('unknown');
+    expect(updated.remoteCountries).toEqual([]);
+  });
+
   it('does not reactivate rejected or closed records after they reappear', async () => {
     await authorize();
     await run();
