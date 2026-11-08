@@ -96,6 +96,14 @@ describe('federated search input and official API adapters', () => {
     expect(jobs[0].postedAt).toMatch(/^2026-/);
     expect(jobs[0].expiresAt).toBe('2100-01-01T00:00:00.000Z');
   });
+  it('drops entries with malformed advertised expiry dates', () => {
+    const jobs = parseHimalayas({ jobs: [{
+      guid: 'bad-date', title: 'Remote Nurse', companyName: 'Clinic',
+      applicationLink: 'https://himalayas.app/jobs/nurse',
+      expiryDate: 'not-a-date',
+    }] });
+    expect(jobs).toEqual([]);
+  });
   it('preserves provider application links and source tracking exactly', () => {
     const url = 'https://himalayas.app/jobs/teacher?utm_source=api&application=1';
     const jobs = parseHimalayas({ jobs: [{
