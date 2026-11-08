@@ -7,7 +7,7 @@ import * as s from '../../src/db/schema';
 import { createEmployer, transitionJob, verifyEmployer } from '../../src/domain/jobs';
 import { searchJobs } from '../../src/domain/search';
 import {
-  changeSourceEnabled, registerSource, reviewSource,
+  changeSourceEnabled, registerSource, reviewSource, updateSource,
 } from '../../src/domain/source-management';
 import { importApifyJobs, apifyBoardToken } from '../../src/integrations/apify';
 import { digest, publicUrl, slugify } from '../../src/lib/security';
@@ -230,6 +230,46 @@ describe('Apify approval, provenance, refresh and publication', () => {
     expect(updated.workplace).toBe('onsite');
     expect(updated.remoteEligibility).toBe('unknown');
     expect(updated.remoteCountries).toEqual([]);
+  });
+
+  it('removes claims that are no longer covered by an approved source permission', async () => {
+    await feed([{
+      ...item(),
+      ai_experience_level: '2-5',
+      ai_education: 'Bachelor degree',
+      ai_visa_sponsorship: true,
+    }]);
+    const source = await authorize();
+    await run();
+    let [job] = await ctx.db.select().from(s.jobs);
+    expect(job.salaryMin).toBe(60000);
+    expect(job.vacancyCount).toBe(2);
+    expect(job.visaSponsorship).toBe(true);
+    expect(job.seniority).toBe('mid');
+    await updateSource(root, source.id, {
+      ...source,
+      enabled: false,
+      endpointUrl: undefined,
+      authorizationExpiresAt: null,
+      permittedFields: ['title', 'description', 'location', 'application'],
+    });
+    await reviewSource(
+      root,
+      source.id,
+      'approved',
+      'Reapproved minimum title-description-location-application fields only.',
+    );
+    await changeSourceEnabled(root.id, source.id, true);
+    await run();
+    [job] = await ctx.db.select().from(s.jobs);
+    expect(job.salaryMin).toBeNull();
+    expect(job.salaryMax).toBeNull();
+    expect(job.vacancyCount).toBeNull();
+    expect(job.visaSponsorship).toBeNull();
+    expect(job.seniority).toBeNull();
+    expect(job.experienceMin).toBeNull();
+    expect(job.education).toBeNull();
+    expect(job.status).toBe('paused');
   });
 
   it('does not reactivate rejected or closed records after they reappear', async () => {
