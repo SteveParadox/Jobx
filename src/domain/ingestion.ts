@@ -14,6 +14,7 @@ import { log } from '@/lib/log';
 import { digest, plainText, sanitizeDescription, slugify } from '@/lib/security';
 import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { queueIndex } from './jobs';
+import { jobSchema } from './validation';
 import { assertSourceApproved, changeSourceEnabled } from './source-management';
 
 export type SyncOptions = {
@@ -270,6 +271,32 @@ export async function syncSource(
               const old = previous[key];
               incoming[key] = old instanceof Date ? old.toISOString() : old;
             }
+          }
+          // Source metadata may change from remote to onsite/hybrid. Previous
+          // applicant-country claims do not survive such a change.
+          if (
+            row.fieldPresence.includes('workplace') &&
+            d.workplace !== 'remote' &&
+            job.workplace === 'remote'
+          ) {
+            d.remoteEligibility = 'unknown';
+            d.remoteCountries = [];
+          }
+          // Never persist a Frankenstein record assembled from individually valid
+          // snapshots. For example a new salary minimum may exceed a retained max.
+          const combined = jobSchema.safeParse(d);
+          if (!combined.success) {
+            snapshot.complete = false;
+            stats.quarantined++;
+            await tx.insert(s.ingestionErrors).values({
+              runId: run.id,
+              externalId: row.externalId,
+              stage: 'normalize',
+              reason: 'PARTIAL_MERGE_INVALID: merged job fields failed validation',
+              rawPayload: rawRetention(row.raw),
+              disposition: 'quarantined',
+            });
+            continue;
           }
           html = sanitizeDescription(d.descriptionHtml);
           text = plainText(html);
