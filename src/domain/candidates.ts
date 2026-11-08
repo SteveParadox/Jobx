@@ -354,10 +354,14 @@ export function matchingCandidateSkills(
     .replace(/[^a-z0-9+#.]+/g, ' ').replace(/\s+/g, ' ');
   const title = ' ' + normalize(job.title) + ' ';
   const listed = new Set(job.skills.map(normalize));
-  return [...new Map(candidateSkills.map(skill => [normalize(skill), skill.trim()] as const)).values()]
-    .filter(skill => skill && (
-      listed.has(normalize(skill)) || title.includes(' ' + normalize(skill) + ' ')
-    ));
+  const unique = new Map<string, string>();
+  for (const skill of candidateSkills) {
+    const key = normalize(skill);
+    if (key && !unique.has(key)) unique.set(key, skill.trim());
+  }
+  return [...unique.values()].filter(skill =>
+    listed.has(normalize(skill)) || title.includes(' ' + normalize(skill) + ' ')
+  );
 }
 export async function recommendations(actor: Actor) {
   const [p, prefs] = await Promise.all([
