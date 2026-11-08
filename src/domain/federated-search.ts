@@ -6,6 +6,7 @@ import {
   fetchJooble,
   fetchUsaJobs,
   fetchHimalayas,
+  cachedHimalayas,
   uniqueLeads,
   type ProviderId,
   type SearchLead,
@@ -105,7 +106,7 @@ export async function federatedSearch(input: unknown) {
         // The public API is shared. Cache identical queries for six hours.
         // Do not send account identifiers, CVs or user profiles to this service.
         const country = options.country ?? options.market?.toUpperCase();
-        const cacheKey = 'federated:himalayas:' + digest(
+        const cacheKey = 'federated:himalayas:v2:' + digest(
           JSON.stringify({ q: options.q.toLowerCase(), country: country ?? '', page: options.page }),
         );
         const redis = env.REDIS_URL ? getRedis() : null;
@@ -114,11 +115,8 @@ export async function federatedSearch(input: unknown) {
           if (cached) {
             try {
               const parsed: unknown = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.every((lead) =>
-                lead && typeof lead === 'object' && lead.provider === 'himalayas'
-              )) return (parsed as SearchLead[]).filter((lead) =>
-                !lead.expiresAt || Date.parse(lead.expiresAt) > Date.now()
-              );
+              const valid = cachedHimalayas(parsed);
+              if (valid) return valid;
             } catch {
               // Refetch invalid cached values rather than surfacing broken results.
             }
@@ -159,12 +157,17 @@ export async function federatedSearch(input: unknown) {
     else
       execute('adzuna', async () => {
         // Limit this provider globally, in addition to per-account API throttling.
-        await rateLimit('federated:provider:adzuna:day', 90, 86400);
-        return fetchAdzuna(query, {
-          appId: env.FEDERATED_ADZUNA_APP_ID!,
-          appKey: env.FEDERATED_ADZUNA_APP_KEY!,
-          logoUrl: logo,
-        }, markets);
+        const results: SearchLead[] = [];
+        for (const market of markets) {
+          // A multi-market search performs one billed request per market.
+          await rateLimit('federated:provider:adzuna:day', 90, 86400);
+          results.push(...await fetchAdzuna(query, {
+            appId: env.FEDERATED_ADZUNA_APP_ID!,
+            appKey: env.FEDERATED_ADZUNA_APP_KEY!,
+            logoUrl: logo,
+          }, [market]));
+        }
+        return results;
       });
   }
 
