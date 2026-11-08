@@ -11,6 +11,7 @@ search infrastructure or claim access to every commercial job board.
 | Source | Integration | Live by default | Publication behavior |
 | --- | --- | --- | --- |
 | Jobx published catalog | PostgreSQL search, canonical source approval | Yes, if a database and approved active jobs exist | Already moderated, eligible public listings only |
+| Himalayas | Public JSON remote-jobs search, **no API key** | Yes, unless disabled; subject to live rate limits | External attributed lead only; keep original Himalayas applicationLink |
 | Greenhouse | Official board endpoint via existing ingestion | No | Employer/source permission, test, enable, moderate |
 | Lever (global + EU) | Official board API via existing ingestion | No | Same approved-source pipeline |
 | Ashby | Public postings API via existing ingestion | No | Listed postings only; approved-source pipeline |
@@ -50,9 +51,36 @@ providers; the internal Jobx catalog has separate structured location filters at
 `/jobs`. An API market denotes a provider's national catalog, not a person's
 eligibility to work there.
 
+## Keyless source: Himalayas
+
+Official documentation: https://himalayas.app/docs/remote-jobs-api
+
+- The remote-jobs JSON search API is published for developer and commercial use
+  **without signup or an API key**, subject to its API-specific terms. The provider
+  is enabled by default. Set `FEDERATED_HIMALAYAS_ENABLED=false` to turn it off.
+- Jobx uses the server-side `/jobs/api/search` endpoint, which supports keyword,
+  1-based page and country filtering. An explicitly selected national API market
+  is used as a country filter **only for Himalayas**, since it has no national
+  marketplace. The default is global remote jobs, not any person's location.
+- Filtered results are external leads only, labeled "Himalayas", with a visible
+  provider link. Preserve the `applicationLink` URL provided by Himalayas,
+  not a rewritten employer ATS destination.
+- The free API has a shared and undisclosed public rate limit; Jobx has an
+  80-upstream-request/day safety budget and a six-hour Redis cache keyed by
+  normalized query/country/page. Additional requests may receive 429. A key
+  grants greater quotas but is **not required** for this integration.
+- The API data is refreshed about daily. Expired jobs are filtered when the
+  upstream provides an expiry date. Listings do not enter the Jobx published
+  catalog, Google Jobs schema, indexing feeds or third-party aggregators.
+- Show listings only on Jobx's own app, keep source credit and backlinks, honor
+  removal/expiry requirements, and do not redistribute the listings to other
+  third-party platforms. The application UI does not claim an individual
+  applicant is legally eligible to work there.
+
 ## Provider secrets and enablement
 
-All these variables are **server-side only** and default to disabled.
+**Other providers below** are server-side and disabled until keys/permissions
+are configured.
 
 ### Adzuna
 

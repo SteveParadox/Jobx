@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { api } from './actions';
 import { Button, Empty, Notice } from './ui';
 
-type ProviderId = 'jobx' | 'adzuna' | 'usajobs' | 'jooble';
+type ProviderId = 'jobx' | 'himalayas' | 'adzuna' | 'usajobs' | 'jooble';
 type Lead = {
   id: string;
   provider: ProviderId;
@@ -107,6 +107,7 @@ export function FederatedSearch() {
               <select value={provider} onChange={(e) => setProvider(e.target.value)}>
                 <option value="all">All configured providers</option>
                 <option value="jobx">Jobx approved listings</option>
+                <option value="himalayas">Himalayas (public remote-jobs API)</option>
                 <option value="adzuna">Adzuna</option>
                 <option value="usajobs">USAJOBS</option>
                 <option value="jooble">Jooble</option>
@@ -243,6 +244,13 @@ export function FederatedSearch() {
                           />
                         </a>
                       </div>
+                    )}
+                    {item.provider === 'himalayas' && item.attributionUrl && (
+                      <p>
+                        <a href={item.attributionUrl} target="_blank" rel="noopener noreferrer">
+                          Remote jobs sourced from Himalayas
+                        </a>
+                      </p>
                     )}
                     {item.provider === 'jooble' && item.attributionUrl && (
                       <p><a href={item.attributionUrl} target="_blank" rel="noopener noreferrer">Jobs powered by Jooble</a></p>

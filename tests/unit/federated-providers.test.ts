@@ -3,6 +3,8 @@ import {
   parseAdzuna,
   parseJooble,
   parseUsaJobs,
+  parseHimalayas,
+  fetchHimalayas,
   fetchUsaJobs,
   safeProviderUrl,
   uniqueLeads,
@@ -57,6 +59,62 @@ describe('federated search input and official API adapters', () => {
     expect(jobs).toHaveLength(1);
     expect(jobs[0].provenance).toBe('external_api');
     expect(JSON.stringify(jobs[0])).not.toContain('eligible');
+  });
+  it('parses no-key Himalayas results with epoch timestamps, expiry and source application links', () => {
+    const jobs = parseHimalayas({
+      jobs: [
+        {
+          guid: 'test-1', title: 'Remote Teacher', companyName: 'Example Academy',
+          excerpt: 'Teach and assess students.',
+          applicationLink: 'https://himalayas.app/jobs/remote-teacher',
+          pubDate: 1794010000000,
+          expiryDate: 4102444800000,
+        },
+        {
+          guid: 'test-expired', title: 'Expired Teacher', companyName: 'Old School',
+          applicationLink: 'https://himalayas.app/jobs/expired',
+          expiryDate: 978307200000,
+        },
+        {
+          guid: 'test-redirect', title: 'Unsafe Job', companyName: 'Example',
+          applicationLink: 'https://unsafe.example/jobs',
+        },
+      ],
+    }, 1794150000000);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      provider: 'himalayas',
+      title: 'Remote Teacher',
+      company: 'Example Academy',
+      url: 'https://himalayas.app/jobs/remote-teacher',
+      attributionUrl: 'https://himalayas.app',
+    });
+    expect(jobs[0].postedAt).toMatch(/^2026-/);
+  });
+  it('calls the keyless Himalayas search endpoint without profile data or credentials', async () => {
+    const request = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ jobs: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    expect(await fetchHimalayas(
+      { q: 'nursing', page: 2, country: 'GB' },
+      request as unknown as typeof fetch,
+    )).toEqual([]);
+    const [requestUrl, init] = request.mock.calls[0];
+    expect(requestUrl).toContain('/jobs/api/search');
+    expect(requestUrl).toContain('q=nursing');
+    expect(requestUrl).toContain('country=GB');
+    expect(requestUrl).not.toContain('api_key');
+    expect(JSON.stringify(init)).not.toContain('Authorization');
+  });
+  it('rejects unsafe upstream payloads rather than claiming an empty job market', async () => {
+    const request = vi.fn(async () =>
+      new Response(JSON.stringify({ error: 'temporary outage' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    await expect(fetchHimalayas(
+      { q: 'teacher', page: 1 }, request as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
   });
   it('parses Jooble as attributed external leads', () => {
     const jobs = parseJooble({

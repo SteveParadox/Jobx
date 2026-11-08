@@ -5,7 +5,7 @@
  * profiles, resumes, account identifiers, or credentials to a result URL.
  * API keys are sent only to hard-coded provider hosts.
  */
-export type ProviderId = 'jobx' | 'adzuna' | 'usajobs' | 'jooble';
+export type ProviderId = 'jobx' | 'himalayas' | 'adzuna' | 'usajobs' | 'jooble';
 export type SearchLead = {
   id: string;
   provider: ProviderId;
@@ -60,9 +60,15 @@ const rows = (value: unknown): unknown[] => (Array.isArray(value) ? value.slice(
 const txt = (value: unknown, limit = 240): string =>
   typeof value === 'string' ? value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit) : '';
 const date = (value: unknown): string | null => {
-  const valueText = txt(value, 50);
-  const millis = valueText ? Date.parse(valueText) : NaN;
-  return Number.isFinite(millis) ? new Date(millis).toISOString() : null;
+  // Himalayas uses epoch milliseconds; other providers return ISO strings.
+  const millis = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim()
+      ? Date.parse(value.trim())
+      : NaN;
+  return Number.isFinite(millis) && millis >= 0 && millis <= 8.64e15
+    ? new Date(millis).toISOString()
+    : null;
 };
 const validId = (value: unknown, url: string) =>
   typeof value === 'string' || typeof value === 'number'
@@ -169,6 +175,28 @@ export function parseUsaJobs(payload: unknown): SearchLead[] {
     })
     .filter((job): job is SearchLead => job !== null);
 }
+export function parseHimalayas(payload: unknown, now = Date.now()): SearchLead[] {
+  return rows(obj(payload).jobs)
+    .map((raw) => {
+      const job = obj(raw);
+      const expiry = date(job.expiryDate);
+      if (expiry && Date.parse(expiry) <= now) return null;
+      return lead(
+        'himalayas',
+        'Himalayas',
+        job.guid,
+        job.title,
+        job.companyName,
+        'Remote · check country and timezone restrictions at the source',
+        job.applicationLink,
+        job.excerpt,
+        job.pubDate,
+        'himalayas.app',
+        'https://himalayas.app',
+      );
+    })
+    .filter((job): job is SearchLead => job !== null);
+}
 export function parseJooble(payload: unknown): SearchLead[] {
   return rows(obj(payload).jobs)
     .map((raw) => {
@@ -201,6 +229,7 @@ async function requestJson(
     !(
       host === 'api.adzuna.com' ||
       host === 'data.usajobs.gov' ||
+      host === 'himalayas.app' ||
       host === 'jooble.org' ||
       /^[a-z]{2}\.jooble\.org$/.test(host)
     )
@@ -289,6 +318,22 @@ export async function fetchUsaJobs(
     request,
   );
   return parseUsaJobs(payload);
+}
+export async function fetchHimalayas(
+  query: { q: string; page: number; country?: string },
+  request: JsonFetch = fetch,
+): Promise<SearchLead[]> {
+  const url = new URL('https://himalayas.app/jobs/api/search');
+  url.searchParams.set('q', query.q);
+  url.searchParams.set('page', String(query.page));
+  if (query.country) url.searchParams.set('country', query.country);
+  const payload = await requestJson(
+    url,
+    { method: 'GET', headers: { Accept: 'application/json' } },
+    request,
+  );
+  if (!Array.isArray(obj(payload).jobs)) throw new Error('UPSTREAM_ENVELOPE');
+  return parseHimalayas(payload);
 }
 export async function fetchJooble(
   query: ExternalSearch,

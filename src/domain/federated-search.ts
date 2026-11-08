@@ -5,12 +5,14 @@ import {
   fetchAdzuna,
   fetchJooble,
   fetchUsaJobs,
+  fetchHimalayas,
   uniqueLeads,
   type ProviderId,
   type SearchLead,
 } from '@/integrations/federated-providers';
 import { env } from '@/lib/config';
-import { rateLimit } from '@/lib/http';
+import { getRedis, rateLimit } from '@/lib/http';
+import { digest } from '@/lib/security';
 import { z } from 'zod';
 
 export const federatedSearchSchema = z
@@ -28,7 +30,7 @@ export const federatedSearchSchema = z
       .regex(/^[a-z]{2}$/)
       .optional(),
     remoteOnly: z.enum(['true', 'false']).default('false'),
-    provider: z.enum(['all', 'jobx', 'adzuna', 'usajobs', 'jooble']).default('all'),
+    provider: z.enum(['all', 'jobx', 'himalayas', 'adzuna', 'usajobs', 'jooble']).default('all'),
     page: z.coerce.number().int().min(1).max(20).default(1),
   })
   .strict();
@@ -39,7 +41,7 @@ type Status = {
   count: number;
   note: string;
 };
-const providerOrder: ProviderId[] = ['jobx', 'adzuna', 'usajobs', 'jooble'];
+const providerOrder: ProviderId[] = ['jobx', 'himalayas', 'adzuna', 'usajobs', 'jooble'];
 
 export async function federatedSearch(input: unknown) {
   const options = federatedSearchSchema.parse(input);
@@ -93,6 +95,38 @@ export async function federatedSearch(input: unknown) {
         attributionLogoUrl: null,
       }));
     });
+  }
+
+  if (selected('himalayas')) {
+    if (!env.FEDERATED_HIMALAYAS_ENABLED)
+      setStatus('himalayas', 'not_configured', 'Public keyless source is disabled by operator setting.');
+    else
+      execute('himalayas', async () => {
+        // The public API is shared. Cache identical queries for six hours.
+        // Do not send account identifiers, CVs or user profiles to this service.
+        const country = options.country ?? options.market?.toUpperCase();
+        const cacheKey = 'federated:himalayas:' + digest(
+          JSON.stringify({ q: options.q.toLowerCase(), country: country ?? '', page: options.page }),
+        );
+        const redis = env.REDIS_URL ? getRedis() : null;
+        if (redis) {
+          const cached = await redis.get(cacheKey);
+          if (cached) {
+            try {
+              const parsed: unknown = JSON.parse(cached);
+              if (Array.isArray(parsed) && parsed.every((lead) =>
+                lead && typeof lead === 'object' && lead.provider === 'himalayas'
+              )) return parsed as SearchLead[];
+            } catch {
+              // Refetch invalid cached values rather than surfacing broken results.
+            }
+          }
+        }
+        await rateLimit('federated:provider:himalayas:day', 80, 86400);
+        const leads = await fetchHimalayas({ q: options.q, page: options.page, country });
+        if (redis) await redis.set(cacheKey, JSON.stringify(leads), 'EX', 21600);
+        return leads;
+      });
   }
 
   if (selected('adzuna')) {
