@@ -38,6 +38,19 @@ const schema = z.object({
   ANALYTICS_ENABLED: bool,
   SOURCE_BROWSER_ENABLED: bool,
 
+  // Licensed, opt-in external search. Never expose provider keys to the client.
+  FEDERATED_ADZUNA_ENABLED: bool,
+  FEDERATED_ADZUNA_APP_ID: optional,
+  FEDERATED_ADZUNA_APP_KEY: optional,
+  FEDERATED_ADZUNA_MARKETS: optional,
+  FEDERATED_ADZUNA_ATTRIBUTION_LOGO_URL: optional,
+  FEDERATED_USAJOBS_ENABLED: bool,
+  FEDERATED_USAJOBS_API_KEY: optional,
+  FEDERATED_USAJOBS_EMAIL: optional,
+  FEDERATED_JOOBLE_ENABLED: bool,
+  FEDERATED_JOOBLE_API_KEY: optional,
+  FEDERATED_JOOBLE_REGION: optional,
+
   // Apify integration
   APIFY_TOKEN: optional,
   APIFY_IMPORT_ENABLED: bool,

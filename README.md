@@ -74,7 +74,7 @@ Unit/integration tests run actual PostgreSQL SQL and migrations with PGlite, inc
 
 - [Architecture](docs/ARCHITECTURE.md) · [Local development](docs/LOCAL_DEVELOPMENT.md)
 - [Database](docs/DATABASE.md) · [Deployment](docs/DEPLOYMENT.md)
-- [Job ingestion](docs/JOB_INGESTION.md) · [SEO](docs/SEO.md) · [Search](docs/SEARCH.md) · [Personal job search](docs/PERSONAL_SEARCH.md)
+- [Job ingestion](docs/JOB_INGESTION.md) · [SEO](docs/SEO.md) · [Search](docs/SEARCH.md) · [Federated job search](docs/FEDERATED_JOB_SEARCH.md)
 - [Authentication and permissions](docs/AUTH_AND_PERMISSIONS.md)
 - [Employer workflows](docs/EMPLOYER_WORKFLOWS.md) · [Payments](docs/PAYMENTS.md)
 - [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Operations](docs/OPERATIONS.md)

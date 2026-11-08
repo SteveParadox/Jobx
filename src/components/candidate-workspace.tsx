@@ -177,7 +177,7 @@ export function CandidateWorkspace() {
               </Empty>
             )}
           </section>
-          <PersonalSearch />
+          <Recommendations />
         </>
       )}
       {tab === 'Saved jobs' && (
@@ -625,129 +625,44 @@ function SearchAlert({ onCreated }: { onCreated: () => Promise<void> }) {
     </div>
   );
 }
-function PersonalSearch() {
-  const [query, setQuery] = useState('');
-  const [remoteOnly, setRemoteOnly] = useState(true);
-  const [includeUnconfirmed, setIncludeUnconfirmed] = useState(true);
+function Recommendations() {
   const [result, setResult] = useState<{
-    jobs: {
-      id: string;
-      slug: string;
-      title: string;
-      companyName: string;
-      locationLabel: string;
-      matchedSkills: string[];
-      matchStrength: 'multiple_skills' | 'one_skill' | 'keyword_only';
-      geographyStatus: string;
-      geographyLabel: string;
-      lastVerifiedAt: string | null;
-    }[];
-    profileCountry: string | null;
-    examined: number;
+    jobs: { id: string; slug: string; title: string }[];
     explanation: string;
   } | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
     <section className="panel">
-      <h2>Personal job search</h2>
-      <p>
-        Search the approved Jobx catalog using your profile skills, with transparent location
-        screening. This does not search the entire web or predict your hiring chances.
-      </p>
-      <form
-        className="stack"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          setError('');
-          setResult(null);
+      <h2>Explore your fit.</h2>
+      <p>Recommendations use the skills you choose to share, without AI scoring.</p>
+      <Button
+        variant="secondary"
+        onClick={async () => {
           try {
-            const params = new URLSearchParams({
-              q: query,
-              remoteOnly: String(remoteOnly),
-              includeUnconfirmed: String(includeUnconfirmed),
-            });
-            setResult(await api('personal-search?' + params.toString()));
+            setResult(await api('recommendations'));
+            setError('');
           } catch (e) {
             setError((e as Error).message);
-          } finally {
-            setBusy(false);
           }
         }}
       >
-        <label>
-          Role or search phrase (optional)
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            maxLength={160}
-            placeholder="Software engineer, AI evaluation…"
-          />
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={remoteOnly}
-            onChange={(event) => setRemoteOnly(event.target.checked)}
-          />
-          Remote jobs only
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={includeUnconfirmed}
-            onChange={(event) => setIncludeUnconfirmed(event.target.checked)}
-          />
-          Also show jobs where country eligibility needs confirmation
-        </label>
-        <Button disabled={busy}>{busy ? 'Searching approved jobs…' : 'Find matching opportunities'}</Button>
-      </form>
-      {error && <Notice error>{error}</Notice>}
+        Find relevant roles
+      </Button>
       {result && (
-        <div className="stack" style={{ marginTop: 20 }}>
-          <p>{result.explanation}</p>
-          <small>
-            {result.profileCountry
-              ? 'Using profile country ' + result.profileCountry + ' for advertised location checks.'
-              : 'Set your country in Profile to check advertised remote restrictions.'}
-            {' '}Inspected {result.examined} unique published candidates.
-          </small>
-          {result.jobs.length === 0 && (
-            <Empty title="No matching published opportunities">
-              Try broader keywords or uncheck remote-only. This does not mean no openings
-              exist outside the Jobx catalog.
-            </Empty>
-          )}
-          {result.jobs.map((job) => (
-            <div className="workspace-row" key={job.id}>
-              <div>
-                <h3>
-                  <Link href={jobPath(job)}>{job.title}</Link>
-                </h3>
-                <p>{job.companyName} · {job.locationLabel}</p>
-                <p>
-                  {job.matchedSkills.length
-                    ? 'Skill overlap: ' + job.matchedSkills.join(', ')
-                    : 'Keyword result; review the qualifications'}
-                </p>
-                <small>
-                  {job.geographyLabel}
-                  {job.lastVerifiedAt
-                    ? ' · Jobx last checked ' + new Date(job.lastVerifiedAt).toLocaleDateString()
-                    : ' · Verification date unavailable'}
-                </small>
-              </div>
-              <Link href={jobPath(job)} className="text-link">
-                Review job →
-              </Link>
+        <>
+          <p style={{ marginTop: 15 }}>{result.explanation}</p>
+          {result.jobs.map((j) => (
+            <div className="workspace-row" key={j.id}>
+              <Link href={jobPath(j)}>{j.title} →</Link>
             </div>
           ))}
-        </div>
+        </>
       )}
+      {error && <Notice error>{error}</Notice>}
     </section>
   );
 }
+
 function ProfileEditor({
   profile,
   busy,
