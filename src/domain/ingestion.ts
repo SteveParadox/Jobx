@@ -379,6 +379,9 @@ export async function syncSource(
                   : 'pending';
         const effectiveStatus = job && (
           job.status === 'rejected' ||
+          // Previously pending Apify jobs require an explicit admin publish.
+          // Resubmission after rejection/pause must not bypass human review.
+          (source.provider === 'manual_apify' && job.status === 'pending' && nextStatus === 'active') ||
           (['closed', 'expired', 'paused'].includes(job.status) && ['active', 'pending'].includes(nextStatus))
         ) ? job.status : nextStatus;
         const values = {
