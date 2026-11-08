@@ -690,3 +690,42 @@ export const discoveryRuns = pgTable('discovery_runs', {
   startedAt: time('started_at'),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
 });
+
+/** Operational discovery health never confers source permission. */
+export const discoverySeedHealth = pgTable('discovery_seed_health', {
+  seedKey: text('seed_key').primaryKey(),
+  hostname: text('hostname').notNull(),
+  status: text('status').notNull().default('unknown'),
+  successCount: integer('success_count').notNull().default(0),
+  failureCount: integer('failure_count').notNull().default(0),
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  candidatesLastRun: integer('candidates_last_run').notNull().default(0),
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+  lastFailureAt: timestamp('last_failure_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  updatedAt: time('updated_at'),
+});
+/** Changes are operator-visible evidence, not job records or permissions. */
+export const discoveryCandidateChanges = pgTable(
+  'discovery_candidate_changes',
+  {
+    id: id(),
+    candidateId: uuid('candidate_id')
+      .notNull()
+      .references(() => discoveryCandidates.id, { onDelete: 'cascade' }),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => discoveryRuns.id, { onDelete: 'cascade' }),
+    changeType: text('change_type').notNull(),
+    priorProvider: text('prior_provider'),
+    provider: text('provider'),
+    priorBoardToken: text('prior_board_token'),
+    boardToken: text('board_token'),
+    observedAt: time('observed_at'),
+  },
+  (t) => [
+    index('discovery_changes_recent_idx').on(t.observedAt),
+    index('discovery_changes_candidate_idx').on(t.candidateId, t.observedAt),
+  ],
+);

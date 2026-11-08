@@ -463,17 +463,21 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       if (method === 'GET' && path === 'admin/ingestion')
         return { ...(await ingestionOverview()), queue: await queueHealth() };
       if (method === 'GET' && path === 'admin/discovery') {
-        const [candidates, runs] = await Promise.all([
+        const [candidates, runs, seedHealth, recentChanges] = await Promise.all([
           db
             .select()
             .from(s.discoveryCandidates)
             .orderBy(desc(s.discoveryCandidates.lastObservedAt))
             .limit(200),
           db.select().from(s.discoveryRuns).orderBy(desc(s.discoveryRuns.startedAt)).limit(50),
+          db.select().from(s.discoverySeedHealth).orderBy(desc(s.discoverySeedHealth.lastRunAt)).limit(100),
+          db.select().from(s.discoveryCandidateChanges).orderBy(desc(s.discoveryCandidateChanges.observedAt)).limit(100),
         ]);
         return {
           candidates,
           runs,
+          seedHealth,
+          recentChanges,
           configured: Boolean(env.JOB_DISCOVERY_ENABLED && env.JOB_DISCOVERY_SEEDS),
         };
       }

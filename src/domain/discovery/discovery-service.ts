@@ -3,6 +3,7 @@ import * as s from '@/db/schema';
 import { crawlCareerSeed } from './career-crawler';
 import { splitDiscoveryList } from './source-classifier';
 import { log } from '@/lib/log';
+import { digest } from '@/lib/security';
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 
 const MAX_SEEDS = 25;
@@ -39,6 +40,10 @@ export async function runConfiguredSeedDiscovery(
   await db
     .delete(s.sourceHostBudgets)
     .where(lt(s.sourceHostBudgets.nextRequestAt, hostBudgetRetentionCutoff));
+  // Compact operational observations; security/moderation audit remains separate.
+  await db.delete(s.discoveryCandidateChanges).where(
+    lt(s.discoveryCandidateChanges.observedAt, new Date(now.getTime() - 180 * 86400000)),
+  );
 
   // Serialize the check-and-create section across all workers sharing PostgreSQL.
   // The transaction-scoped lock is released after the new running row is committed.
@@ -112,6 +117,8 @@ export async function runConfiguredSeedDiscovery(
       } catch (error) {
         signal.throwIfAborted();
         rejected++;
+        await recordSeedHealth(seed, false, now, 0,
+          error instanceof Error ? error.message.slice(0, 250) : 'Discovery request failed');
         log('discovery_seed_rejected', {
           runId: run.id,
           hostname: safeHostname(seed),
@@ -119,6 +126,7 @@ export async function runConfiguredSeedDiscovery(
         });
         continue;
       }
+      await recordSeedHealth(seed, true, now, candidates.length);
       for (const candidate of candidates) {
         if (processed >= MAX_CANDIDATES_PER_RUN) break;
         processed++;
@@ -135,12 +143,20 @@ export async function runConfiguredSeedDiscovery(
           const [existing] = await tx
             .select({
               id: s.discoveryCandidates.id,
+              provider: s.discoveryCandidates.provider,
+              boardToken: s.discoveryCandidates.boardToken,
+              state: s.discoveryCandidates.state,
             })
             .from(s.discoveryCandidates)
             .where(eq(s.discoveryCandidates.canonicalUrl, candidate.canonicalUrl))
             .limit(1);
           const incoming = candidate.evidence[0];
-          await tx
+          const identityChanged = Boolean(existing && (
+            existing.provider !== candidate.provider ||
+            existing.boardToken !== candidate.boardToken
+          ));
+          const reopen = identityChanged && existing?.state !== 'REJECTED';
+          const [persisted] = await tx
             .insert(s.discoveryCandidates)
             .values({
               canonicalUrl: candidate.canonicalUrl,
@@ -180,10 +196,31 @@ export async function runConfiguredSeedDiscovery(
                 )
               END`,
                 lastObservedAt: now,
-                state: sql`CASE WHEN ${s.discoveryCandidates.state} = 'REJECTED' OR ${s.discoveryCandidates.reviewedAt} IS NOT NULL THEN ${s.discoveryCandidates.state} ELSE ${candidate.state} END`,
+                state: sql`CASE
+                  WHEN ${s.discoveryCandidates.state} = 'REJECTED' THEN ${s.discoveryCandidates.state}
+                  WHEN ${reopen} THEN 'REVIEW_REQUIRED'
+                  WHEN ${s.discoveryCandidates.reviewedAt} IS NOT NULL THEN ${s.discoveryCandidates.state}
+                  ELSE ${candidate.state}
+                END`,
+                ...(reopen
+                  ? { reviewedAt: null, reviewedBy: null, reviewNote: null, employerId: null }
+                  : {}),
                 requiresPermissionReview: true,
               },
+            })
+            .returning({ id: s.discoveryCandidates.id });
+          if (!existing || identityChanged) {
+            await tx.insert(s.discoveryCandidateChanges).values({
+              candidateId: persisted.id,
+              runId: run.id,
+              changeType: existing ? 'identity_changed' : 'first_seen',
+              priorProvider: existing?.provider ?? null,
+              provider: candidate.provider,
+              priorBoardToken: existing?.boardToken ?? null,
+              boardToken: candidate.boardToken,
+              observedAt: now,
             });
+          }
           if (existing) updated++;
           else found++;
         });
@@ -243,4 +280,43 @@ function safeHostname(input: string): string {
   } catch {
     return 'invalid-url';
   }
+}
+
+async function recordSeedHealth(
+  seed: string,
+  success: boolean,
+  when: Date,
+  count: number,
+  error?: string,
+) {
+  const db = getDb();
+  const seedKey = digest(seed);
+  await db.insert(s.discoverySeedHealth).values({
+    seedKey,
+    hostname: safeHostname(seed),
+    status: success ? 'healthy' : 'degraded',
+    successCount: success ? 1 : 0,
+    failureCount: success ? 0 : 1,
+    consecutiveFailures: success ? 0 : 1,
+    candidatesLastRun: count,
+    lastRunAt: when,
+    lastSuccessAt: success ? when : null,
+    lastFailureAt: success ? null : when,
+    lastError: error ?? null,
+    updatedAt: when,
+  }).onConflictDoUpdate({
+    target: s.discoverySeedHealth.seedKey,
+    set: {
+      status: success ? 'healthy' : 'degraded',
+      hostname: safeHostname(seed),
+      successCount: sql`${s.discoverySeedHealth.successCount} + ${success ? 1 : 0}`,
+      failureCount: sql`${s.discoverySeedHealth.failureCount} + ${success ? 0 : 1}`,
+      consecutiveFailures: success ? 0 : sql`${s.discoverySeedHealth.consecutiveFailures} + 1`,
+      candidatesLastRun: count,
+      lastRunAt: when,
+      ...(success ? { lastSuccessAt: when } : { lastFailureAt: when }),
+      lastError: error ?? null,
+      updatedAt: when,
+    },
+  });
 }
