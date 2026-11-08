@@ -24,6 +24,8 @@ export type SyncOptions = {
   transport?: Transport;
   pace?: (host: string, interval: number, signal: AbortSignal) => Promise<void>;
   checkCancelled?: () => Promise<void>;
+  apifyActorId?: string;
+  suppressMissing?: boolean;
 };
 function rawRetention(value: unknown): unknown {
   const text = JSON.stringify(value ?? null);
@@ -101,6 +103,10 @@ export async function syncSource(
   const stats = { imported: 0, updated: 0, closed: 0, duplicates: 0, quarantined: 0, protected: 0 };
   try {
     const manual = source.provider.startsWith('manual_');
+    if (source.provider === 'manual_apify' && !options.apifyActorId)
+      throw new SourceError('SNAPSHOT_ORIGIN', 'Apify source requires the dedicated actor import');
+    if (source.provider !== 'manual_apify' && options.apifyActorId)
+      throw new SourceError('SNAPSHOT_ORIGIN', 'Apify identity is not valid for this source');
     if (manual !== Boolean(suppliedRows))
       throw new SourceError(
         'SNAPSHOT_ORIGIN',
@@ -378,6 +384,7 @@ export async function syncSource(
             rawPayload: rawRetention(row.raw),
             normalizedPayload: {
               ...d,
+              ...(row.provenance ? { provenance: row.provenance } : {}),
               ...(row.linkStatus
                 ? { linkVerification: { status: row.linkStatus, verifiedAt: now.toISOString() } }
                 : {}),
@@ -392,6 +399,7 @@ export async function syncSource(
               rawPayload: rawRetention(row.raw),
               normalizedPayload: {
                 ...d,
+                ...(row.provenance ? { provenance: row.provenance } : {}),
                 ...(row.linkStatus
                   ? { linkVerification: { status: row.linkStatus, verifiedAt: now.toISOString() } }
                   : {}),
@@ -404,7 +412,7 @@ export async function syncSource(
             },
           });
       }
-      if (snapshot.complete) {
+      if (snapshot.complete && !options.suppressMissing) {
         const mappings = await tx
           .select()
           .from(s.mappings)

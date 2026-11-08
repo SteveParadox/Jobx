@@ -10,6 +10,8 @@ export type FeedJob = {
   raw: unknown;
   sourcePostedAt?: string | null;
   linkStatus?: 'reachable' | 'gone' | 'unavailable';
+  provenance?: { provider: 'apify'; actorId: string; originalJobUrl: string; observedAt: string; datasetId?: string; actorRunId?: string };
+  fieldPresence?: string[];
 };
 export type RejectedRecord = { externalId?: string; reason: string; raw?: unknown };
 export type Snapshot = {
@@ -182,7 +184,7 @@ export const NETWORK_PROVIDERS = [
   'authorized_browser',
   'licensed_json',
 ] as const;
-export const MANUAL_PROVIDERS = ['manual_json', 'manual_csv', 'manual_xml'] as const;
+export const MANUAL_PROVIDERS = ['manual_json', 'manual_csv', 'manual_xml', 'manual_apify'] as const;
 export const JSON_TYPES = ['application/json', 'text/json'];
 export const XML_TYPES = [
   'application/xml',

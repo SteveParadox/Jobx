@@ -216,7 +216,7 @@ export function validateSnapshot(
         !ctx.source.applicationHostnames.includes(sourceHost)
       )
         throw new SourceError('SOURCE_HOST', 'Job-page attribution hostname has not been approved');
-      return { ...normalized, raw: row.raw };
+      return { ...normalized, raw: row.raw, provenance: row.provenance, fieldPresence: row.fieldPresence };
     },
     snapshot.requests,
   );

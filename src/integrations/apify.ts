@@ -1,12 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import countries from 'i18n-iso-countries';
 import en from 'i18n-iso-countries/langs/en.json' with { type: 'json' };
-import { and, eq, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { syncSource } from '../domain/ingestion';
+import { sourceApproved } from '../domain/source-management';
 import { getDb } from '../db';
 import * as s from '../db/schema';
 import { env } from '../lib/config';
-import { digest, plainText, publicUrl, slugify } from '../lib/security';
+import { digest, publicUrl, slugify } from '../lib/security';
 import type { FeedJob } from './sources/contracts';
 import { normalizedRecord } from './sources/normalize';
 countries.registerLocale(en);
@@ -34,10 +35,13 @@ export type ApifyImportResult = {
   ready: number;
   imported: number;
   existing: number;
+  updated: number;
+  awaitingApproval: number;
   skipped: number;
 };
 type Candidate = {
   feed: FeedJob;
+  raw: Record<string, unknown>;
   employer: {
     name: string;
     slug: string;
@@ -122,8 +126,8 @@ function safeUrl(...values: unknown[]) {
   return undefined;
 }
 function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
-  const applyUrl = text(item.url);
-  if (!applyUrl) return { skip: 'missing application URL' };
+  const applyUrl = safeUrl(item.url);
+  if (!applyUrl) return { skip: 'missing or unsafe application URL' };
   const title = text(item.title);
   if (!title) return { skip: 'missing title' };
   const description = text(item.description_html) || text(item.description);
@@ -142,20 +146,8 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
   const country = countryNames.map(countryFromName).find(Boolean);
   if (workplace !== 'remote' && !country)
     return { skip: 'missing normalized country for physical workplace' };
-  const remoteCountries = [
-    ...new Set(
-      [
-        ...list(item.ai_remote_location),
-        ...list(item.ai_remote_location_derived),
-        ...list(item.location_requirements),
-        ...countryNames,
-      ]
-        .map(countryFromName)
-        .filter((code): code is string => Boolean(code)),
-    ),
-  ];
-  if (workplace === 'remote' && remoteCountries.length === 0)
-    return { skip: 'remote role without explicit applicant countries' };
+  // Derived job geography does not establish applicant-country eligibility.
+  const remoteCountries: string[] = [];
   const salary = {
     salaryMin: number(item.ai_salary_min_value ?? item.ai_salary_value),
     salaryMax: number(item.ai_salary_max_value ?? item.ai_salary_value),
@@ -190,6 +182,7 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
       city: list(item.cities_derived)[0],
       workplace,
       remoteCountries,
+      remoteEligibility: 'unknown',
       employmentType,
       category: list(item.ai_taxonomies_a)[0] || text(item.source) || undefined,
       seniority: experience(item.ai_experience_level).seniority,
@@ -217,6 +210,7 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
   if (!website) return { skip: 'missing employer website' };
   return {
     feed,
+    raw: item,
     employer: {
       name,
       slug: `${slugify(name).slice(0, 60)}-${digest(`${name}|${website}`).slice(0, 8)}`,
@@ -257,16 +251,25 @@ async function fetchItems(options: ApifyImportOptions): Promise<Record<string, u
     Boolean(value && typeof value === 'object'),
   );
 }
+
+/** The registration token is per actor and employer. It grants no approval by itself. */
+export function apifyBoardToken(actorId: string, employerSlug: string, employerWebsite: string) {
+  return 'apify_' + digest([actorId.trim(), employerSlug, employerWebsite].join('|')).slice(0, 40);
+}
+
 export async function importApifyJobs(
   options: ApifyImportOptions = {},
 ): Promise<ApifyImportResult> {
   const logger = options.logger ?? (() => {});
-  const items = await fetchItems(options);
+  if (options.datasetFile && env.APP_ENV === 'production' && !options.dryRun)
+    throw new Error('Local Apify dataset files cannot be persisted in production');
+  const actorId = options.actorId?.trim() || env.APIFY_ACTOR_ID?.trim() || DEFAULT_ACTOR_ID;
+  const items = await fetchItems({ ...options, actorId });
   const candidates: Candidate[] = [];
   for (const item of items) {
     const mapped = mapItem(item);
     if ('skip' in mapped) {
-      logger(`SKIP ${text(item.title) || '(untitled)'}: ${mapped.skip}`);
+      logger('SKIP ' + (text(item.title) || '(untitled)') + ': ' + mapped.skip);
       continue;
     }
     candidates.push(mapped);
@@ -274,86 +277,90 @@ export async function importApifyJobs(
   if (options.dryRun) {
     for (const candidate of candidates)
       logger(
-        `READY ${candidate.employer.name} | ${candidate.feed.data.title} | ${candidate.feed.data.locationLabel} | ${candidate.feed.data.workplace} | ${candidate.feed.data.applicationMethod}`,
+        'READY ' + candidate.employer.name + ' | ' + candidate.feed.data.title +
+        ' | source board token ' + apifyBoardToken(actorId, candidate.employer.slug, candidate.employer.website) +
+        ' | registration and approval required',
       );
     return {
       fetched: items.length,
       ready: candidates.length,
       imported: 0,
+      updated: 0,
       existing: 0,
+      awaitingApproval: candidates.length,
       skipped: items.length - candidates.length,
     };
   }
   const db = getDb();
-  let inserted = 0;
-  let existing = 0;
-  await db.transaction(async (tx) => {
-    for (const candidate of candidates) {
-      const [foundEmployer] = await tx
-        .select()
-        .from(s.employers)
-        .where(
-          or(
-            eq(s.employers.slug, candidate.employer.slug),
-            eq(s.employers.website, candidate.employer.website),
-          ),
-        )
-        .limit(1);
-      const employer =
-        foundEmployer ??
-        (
-          await tx
-            .insert(s.employers)
-            .values({
-              id: randomUUID(),
-              ...candidate.employer,
-              verificationStatus: env.APP_ENV === 'production' ? 'pending' : 'verified',
-              isDemo: false,
-            })
-            .returning()
-        )[0];
-      const [foundJob] = await tx
-        .select({ id: s.jobs.id })
-        .from(s.jobs)
-        .where(
-          and(
-            eq(s.jobs.employerId, employer.id),
-            eq(s.jobs.applyUrl, candidate.feed.data.applyUrl!),
-          ),
-        )
-        .limit(1);
-      if (foundJob) {
-        existing++;
-        continue;
-      }
-      const data = candidate.feed.data;
-      const descriptionText = plainText(data.descriptionHtml);
-      await tx.insert(s.jobs).values({
-        ...data,
-        employerId: employer.id,
-        descriptionText,
-        slug: slugify(data.title),
-        fingerprint: digest(
-          [data.title, data.locationLabel, descriptionText, data.applyUrl ?? '']
-            .map((value) => value.toLowerCase().replace(/\s+/g, ' ').trim())
-            .join('|'),
-        ),
-        status: 'active',
-        isDemo: false,
-        originalPostedAt: data.originalPostedAt ? new Date(data.originalPostedAt) : null,
-        expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
-        firstDiscoveredAt: new Date(),
-        lastVerifiedAt: new Date(),
-        publishedAt: new Date(),
-      });
-      inserted++;
+  const registered = await db
+    .select({ source: s.sources, employer: s.employers })
+    .from(s.sources)
+    .innerJoin(s.employers, eq(s.sources.employerId, s.employers.id))
+    .where(eq(s.sources.provider, 'manual_apify'));
+  const byToken = new Map(registered.map((row) => [row.source.boardToken, row]));
+  const batches = new Map<string, FeedJob[]>();
+  let awaitingApproval = 0;
+  for (const candidate of candidates) {
+    const token = apifyBoardToken(actorId, candidate.employer.slug, candidate.employer.website);
+    const registration = byToken.get(token);
+    if (
+      !registration ||
+      registration.employer.slug !== candidate.employer.slug ||
+      registration.employer.website !== candidate.employer.website ||
+      registration.employer.name.trim().toLowerCase() !== candidate.employer.name.trim().toLowerCase() ||
+      registration.employer.disabled ||
+      registration.employer.verificationStatus !== 'verified' ||
+      !registration.source.enabled ||
+      !sourceApproved(registration.source)
+    ) {
+      awaitingApproval++;
+      logger('REVIEW ' + candidate.employer.name + ': no enabled, verified, approved Apify source for ' + token);
+      continue;
     }
-  });
+    const row: FeedJob = {
+      ...candidate.feed,
+      raw: candidate.raw,
+      provenance: {
+        provider: 'apify',
+        actorId,
+        originalJobUrl: candidate.feed.sourceUrl,
+        observedAt: new Date().toISOString(),
+      },
+      fieldPresence: [
+        'title', 'descriptionHtml', 'applyUrl', 'workplace', 'remoteEligibility', 'remoteCountries',
+        ...(Object.hasOwn(candidate.raw, 'date_valid_through') ? ['expiresAt'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_salary_min_value') || Object.hasOwn(candidate.raw, 'ai_salary_value') ? ['salaryMin'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_salary_max_value') || Object.hasOwn(candidate.raw, 'ai_salary_value') ? ['salaryMax'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_salary_currency') ? ['currency'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_salary_unit_text') ? ['salaryPeriod'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_key_skills') ? ['skills'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_employment_type') ? ['employmentType'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_vacancies') || Object.hasOwn(candidate.raw, 'vacancy_count') ? ['vacancyCount'] : []),
+      ],
+    };
+    batches.set(registration.source.id, [...(batches.get(registration.source.id) ?? []), row]);
+  }
+  let imported = 0;
+  let updated = 0;
+  let existing = 0;
+  for (const [sourceId, records] of batches) {
+    // The actor query may be filtered, time-limited or incomplete. Never close absent jobs.
+    const result = await syncSource(sourceId, fetch, records, {
+      apifyActorId: actorId,
+      suppressMissing: true,
+    });
+    imported += result.imported;
+    updated += result.updated;
+    existing += records.length - result.imported;
+    logger('SYNC ' + sourceId + ': ' + result.imported + ' created, ' + result.updated + ' updated, ' + result.quarantined + ' quarantined');
+  }
   return {
     fetched: items.length,
     ready: candidates.length,
-    imported: inserted,
+    imported,
+    updated,
     existing,
-    skipped: items.length - candidates.length,
+    awaitingApproval,
+    skipped: items.length - candidates.length + awaitingApproval,
   };
 }

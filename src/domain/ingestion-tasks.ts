@@ -32,6 +32,8 @@ export async function enqueueSource(
       (await tx.select().from(s.sources).where(eq(s.sources.id, sourceId)).for('update'))[0],
     );
     assertSourceApproved(source);
+    if (source.provider === 'manual_apify')
+      throw new AppError(400, 'Apify requires the dedicated approved actor integration');
     if (kind !== 'test' && !source.enabled)
       throw new AppError(409, 'Enable the approved source before importing');
     if (source.provider.startsWith('manual_') !== (kind === 'import'))
