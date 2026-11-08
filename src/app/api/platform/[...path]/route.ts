@@ -35,6 +35,7 @@ import {
   verifyEmployer,
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
+import { personalJobSearch } from '@/domain/personal-search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
 import { assertReviewedCandidateCurrent } from '@/domain/discovery/review-guard';
@@ -168,6 +169,10 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     if (method === 'PATCH' && p[0] === 'notifications' && p.length === 2) {
       const data = await body(req, z.object({ read: z.boolean() }));
       return markNotification(actor, uuid(p[1]), data.read);
+    }
+    if (method === 'GET' && path === 'personal-search') {
+      await rateLimit('personal-search:' + actor.id, 10, 60);
+      return personalJobSearch(actor, Object.fromEntries(new URL(req.url).searchParams));
     }
     if (method === 'GET' && path === 'recommendations') return recommendations(actor);
     if (method === 'GET' && path === 'export')
