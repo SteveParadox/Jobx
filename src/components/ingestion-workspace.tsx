@@ -139,7 +139,7 @@ export function IngestionWorkspace({
               · {activeJobs} active mapped jobs
             </p>
             <p>
-              Endpoint: {source.endpointUrl ?? 'Authorized manual upload'}
+              Endpoint: {source.endpointUrl ?? (source.provider === 'manual_apify' ? 'Dedicated authorized Apify actor' : 'Authorized manual upload')}
               <br />
               Last success: {when(source.lastSuccessAt)} · Last failure:{' '}
               {when(source.lastFailureAt)} · Consecutive failures: {source.consecutiveFailures}
@@ -397,6 +397,7 @@ function SourceEditor({
               'manual_json',
               'manual_csv',
               'manual_xml',
+              'manual_apify',
             ].map((v) => (
               <option key={v}>{v}</option>
             ))}
