@@ -299,7 +299,10 @@ export async function fetchAdzuna(
     if (query.location) url.searchParams.set('where', query.location);
     const payload = await requestJson(url, { method: 'GET', headers: { Accept: 'application/json' } }, request);
     if (!Array.isArray(obj(payload).results)) throw new Error('UPSTREAM_ENVELOPE');
-    result.push(...parseAdzuna(payload, market, credentials.logoUrl));
+    const parsed = parseAdzuna(payload, market, credentials.logoUrl);
+    if (rows(obj(payload).results).length && !parsed.length)
+      throw new Error('UPSTREAM_RECORDS_REJECTED');
+    result.push(...parsed);
   }
   return result;
 }
@@ -327,9 +330,11 @@ export async function fetchUsaJobs(
     },
     request,
   );
-  if (!Array.isArray(obj(obj(payload).SearchResult).SearchResultItems))
-    throw new Error('UPSTREAM_ENVELOPE');
-  return parseUsaJobs(payload);
+  const items = obj(obj(payload).SearchResult).SearchResultItems;
+  if (!Array.isArray(items)) throw new Error('UPSTREAM_ENVELOPE');
+  const parsed = parseUsaJobs(payload);
+  if (rows(items).length && !parsed.length) throw new Error('UPSTREAM_RECORDS_REJECTED');
+  return parsed;
 }
 export async function fetchHimalayas(
   query: { q: string; page: number; country?: string },
@@ -371,7 +376,10 @@ export async function fetchJooble(
     request,
   );
   if (!Array.isArray(obj(payload).jobs)) throw new Error('UPSTREAM_ENVELOPE');
-  return parseJooble(payload);
+  const parsed = parseJooble(payload);
+  if (rows(obj(payload).jobs).length && !parsed.length)
+    throw new Error('UPSTREAM_RECORDS_REJECTED');
+  return parsed;
 }
 /** Revalidate internal Redis data before any cached link reaches the browser. */
 export function cachedHimalayas(value: unknown, now = Date.now()): SearchLead[] | null {
