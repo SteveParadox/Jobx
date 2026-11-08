@@ -346,6 +346,19 @@ export async function saveSearch(actor: Actor, name: string, filters: unknown, i
       .returning()
   )[0];
 }
+export function matchingCandidateSkills(
+  job: { title: string; skills: string[] },
+  candidateSkills: string[],
+): string[] {
+  const normalize = (input: string) => input.toLowerCase().trim()
+    .replace(/[^a-z0-9+#.]+/g, ' ').replace(/\s+/g, ' ');
+  const title = ' ' + normalize(job.title) + ' ';
+  const listed = new Set(job.skills.map(normalize));
+  return [...new Map(candidateSkills.map(skill => [normalize(skill), skill.trim()] as const)).values()]
+    .filter(skill => skill && (
+      listed.has(normalize(skill)) || title.includes(' ' + normalize(skill) + ' ')
+    ));
+}
 export async function recommendations(actor: Actor) {
   const [p, prefs] = await Promise.all([
     getDb().select().from(s.profiles).where(eq(s.profiles.userId, actor.id)),
@@ -355,9 +368,25 @@ export async function recommendations(actor: Actor) {
     return { jobs: [], explanation: 'Enable optional personalized matching under Privacy to use profile skills.' };
   if (!p?.skills.length)
     return { jobs: [], explanation: 'Add your skills to see relevant openings.' };
+  const terms: string[] = [];
+  for (const skill of p.skills) {
+    const value = skill.trim();
+    if (!value || terms.includes(value)) continue;
+    if ([...terms, value].join(' OR ').length > 160) continue;
+    terms.push(value);
+    if (terms.length >= 5) break;
+  }
+  if (!terms.length) return { jobs: [], explanation: 'Add valid skills to see relevant openings.' };
+  const results = await searchJobs({ q: terms.join(' OR ') });
+  const matches = results.jobs.map(job => ({
+    ...job,
+    matchedSkills: matchingCandidateSkills(job, p.skills),
+  })).sort((a, b) => b.matchedSkills.length - a.matchedSkills.length);
   return {
-    ...(await searchJobs({ q: p.skills.slice(0, 5).join(' OR ') })),
-    explanation: 'Matches use only the skills you added; review the actual qualifications.',
+    ...results,
+    jobs: matches,
+    explanation:
+      'Suggested published jobs use a transparent skill-overlap heuristic on the current results page. They are not eligibility predictions or AI confidence scores.',
   };
 }
 export async function exportCandidateData(actor: Actor) {

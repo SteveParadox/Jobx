@@ -640,7 +640,7 @@ function SearchAlert({ onCreated }: { onCreated: () => Promise<void> }) {
 }
 function Recommendations() {
   const [result, setResult] = useState<{
-    jobs: { id: string; slug: string; title: string }[];
+    jobs: { id: string; slug: string; title: string; matchedSkills?: string[] }[];
     explanation: string;
   } | null>(null);
   const [error, setError] = useState('');
@@ -666,7 +666,12 @@ function Recommendations() {
           <p style={{ marginTop: 15 }}>{result.explanation}</p>
           {result.jobs.map((j) => (
             <div className="workspace-row" key={j.id}>
-              <Link href={jobPath(j)}>{j.title} →</Link>
+              <div>
+                <Link href={jobPath(j)}>{j.title} →</Link>
+                {j.matchedSkills?.length ? (
+                  <small> · Profile skills: {j.matchedSkills.join(', ')}</small>
+                ) : null}
+              </div>
             </div>
           ))}
         </>
