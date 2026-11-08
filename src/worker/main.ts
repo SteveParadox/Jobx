@@ -1,6 +1,7 @@
 import { closeDb, getDb } from '@/db';
 import * as s from '@/db/schema';
 import { pruneSearchHistory } from '@/domain/candidates';
+import { pruneDisallowedExternalLeads } from '@/domain/external-leads';
 import { pruneRawPayloads, syncSource } from '@/domain/ingestion';
 import { processIngestionTask } from '@/domain/ingestion-tasks';
 import { expireSourceAuthorizations } from '@/domain/source-management';
@@ -34,6 +35,7 @@ async function tick() {
   await generateDigests();
   await pruneRawPayloads();
   await pruneSearchHistory();
+  await pruneDisallowedExternalLeads();
   await tickIngestion(queue);
   if (env.JOB_DISCOVERY_ENABLED) {
     // Crawl in a separate job so slow discovery cannot stall the platform heartbeat.

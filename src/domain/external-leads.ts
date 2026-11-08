@@ -4,12 +4,20 @@ import type { Actor } from '@/lib/auth';
 import { AppError } from '@/lib/errors';
 import { digest } from '@/lib/security';
 import { and, desc, eq } from 'drizzle-orm';
-import { unsealExternalLead } from './external-lead-tokens';
+import { providerStorageAllowed, unsealExternalLead } from './external-lead-tokens';
 
 export async function listSavedExternalLeads(actor: Actor) {
-  return getDb().select().from(s.externalSavedLeads)
+  const rows = await getDb().select().from(s.externalSavedLeads)
     .where(eq(s.externalSavedLeads.userId, actor.id))
     .orderBy(desc(s.externalSavedLeads.createdAt)).limit(100);
+  return rows.filter(row => providerStorageAllowed(row.provider));
+}
+export async function pruneDisallowedExternalLeads() {
+  const permitted = ['usajobs', 'jooble'].filter(providerStorageAllowed);
+  if (!permitted.length) return getDb().delete(s.externalSavedLeads);
+  const { notInArray } = await import('drizzle-orm');
+  return getDb().delete(s.externalSavedLeads)
+    .where(notInArray(s.externalSavedLeads.provider, permitted));
 }
 export async function saveExternalLead(actor: Actor, token: string) {
   let claim;

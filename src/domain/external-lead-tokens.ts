@@ -14,7 +14,8 @@ const claimSchema = z.object({
 }).strict();
 export type ExternalLeadClaim = z.infer<typeof claimSchema>;
 export function providerStorageAllowed(provider: string) {
-  return ['adzuna','usajobs','jooble'].includes(provider) &&
+  // Adzuna bookmarks also require branded retention displays; keep disabled until reviewed.
+  return ['usajobs','jooble'].includes(provider) &&
     (env.JOB_EXTERNAL_SAVE_PROVIDERS ?? '').split(',').some(x => x.trim() === provider);
 }
 function sign(encoded: string) {

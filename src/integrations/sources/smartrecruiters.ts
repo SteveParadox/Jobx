@@ -42,7 +42,7 @@ export const smartRecruitersAdapter: SourceAdapter = {
     const base = 'https://api.smartrecruiters.com/v1/companies/' +
       encodeURIComponent(token) + '/postings';
     const snapshot: Snapshot = { records: [], rejected: [], complete: true, requests: 0 };
-    const perPage = Math.min(ctx.config.pageSize, 100);
+    const perPage = Math.min(ctx.config.pageSize, 100, Math.max(1, ctx.config.maxRequests - 2));
     let offset = 0;
     let finished = false;
     for (let page = 0; page < ctx.config.maxPages; page++) {
