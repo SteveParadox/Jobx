@@ -313,9 +313,9 @@ export async function syncSource(
               and(
                 eq(s.jobs.employerId, source.employerId),
                 isNull(s.jobs.sourceOwnerId),
+                // Titles and location labels drift between actor runs. A shared
+                // destination is ambiguous until legacy provenance is reviewed.
                 eq(s.jobs.applyUrl, canonicalApplicationUrl(d.applyUrl!)),
-                eq(s.jobs.title, d.title),
-                sql`lower(${s.jobs.locationLabel})=lower(${d.locationLabel})`,
               ),
             )
             .limit(1);
