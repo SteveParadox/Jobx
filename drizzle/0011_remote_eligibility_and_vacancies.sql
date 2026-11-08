@@ -2,6 +2,9 @@ ALTER TABLE jobs
   ADD COLUMN remote_eligibility text NOT NULL DEFAULT 'unknown',
   ADD COLUMN vacancy_count integer;
 ALTER TABLE jobs
+  ADD CONSTRAINT jobs_remote_eligibility_valid
+  CHECK (remote_eligibility IN ('unknown', 'restricted', 'worldwide'));
+ALTER TABLE jobs
   ADD CONSTRAINT jobs_vacancy_count_nonnegative
   CHECK (vacancy_count IS NULL OR vacancy_count >= 0);
 -- Only source-owned jobs have an established approved-source provenance.
