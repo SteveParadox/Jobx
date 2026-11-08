@@ -39,6 +39,7 @@ import { listSavedExternalLeads, saveExternalLead, updateExternalLead, removeExt
 import { federatedSearch } from '@/domain/federated-search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
+import { reviewExternalDiscoveryLead } from '@/domain/discovery/provider-discovery';
 import { assertReviewedCandidateCurrent } from '@/domain/discovery/review-guard';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
@@ -495,6 +496,22 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
           recentChanges,
           configured: Boolean(env.JOB_DISCOVERY_ENABLED && env.JOB_DISCOVERY_SEEDS),
         };
+      }
+      if (method === 'GET' && path === 'admin/external-discovery') {
+        const [leads, runs] = await Promise.all([
+          db.select().from(s.externalDiscoveryLeads)
+            .orderBy(desc(s.externalDiscoveryLeads.lastSeenAt)).limit(150),
+          db.select().from(s.externalDiscoveryRuns)
+            .orderBy(desc(s.externalDiscoveryRuns.startedAt)).limit(30),
+        ]);
+        return { leads, runs, enabled: env.JOB_AUTONOMOUS_PROVIDER_DISCOVERY_ENABLED };
+      }
+      if (method === 'PATCH' && p[1] === 'external-discovery' && p.length === 3) {
+        const data = await body(req, z.object({
+          state: z.enum(['reviewed', 'rejected']),
+          note: z.string().trim().min(10).max(2000),
+        }));
+        return reviewExternalDiscoveryLead(actor, p[2], data.state, data.note);
       }
       if (method === 'POST' && path === 'admin/discovery/run') {
         const data = await body(req, z.object({ seeds: z.string().max(10000).optional() }));

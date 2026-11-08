@@ -752,3 +752,37 @@ export const externalSavedLeads = pgTable(
     index('external_leads_owner_recent_idx').on(t.userId, t.createdAt),
   ],
 );
+
+/** Operator-only API discovery inbox. Never a public job record. */
+export const externalDiscoveryLeads = pgTable(
+  'external_discovery_leads',
+  {
+    leadKey: text('lead_key').primaryKey(),
+    provider: text('provider').notNull(),
+    title: text('title').notNull(),
+    company: text('company').notNull(),
+    location: text('location').notNull(),
+    url: text('url').notNull(),
+    searchQuery: text('search_query').notNull(),
+    contentFingerprint: text('content_fingerprint').notNull(),
+    state: text('state').notNull().default('pending'),
+    firstSeenAt: time('first_seen_at'),
+    lastSeenAt: time('last_seen_at'),
+    lastChangedAt: time('last_changed_at'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewedBy: text('reviewed_by').references(() => user.id, { onDelete: 'set null' }),
+    reviewNote: text('review_note'),
+  },
+  (t) => [index('external_discovery_review_idx').on(t.state, t.lastSeenAt)],
+);
+export const externalDiscoveryRuns = pgTable('external_discovery_runs', {
+  id: id(),
+  status: text('status').notNull().default('running'),
+  queries: integer('queries').notNull().default(0),
+  found: integer('found').notNull().default(0),
+  updated: integer('updated').notNull().default(0),
+  failures: integer('failures').notNull().default(0),
+  error: text('error'),
+  startedAt: time('started_at'),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+});

@@ -99,6 +99,13 @@
       "when": 1794180001000,
       "tag": "0013_external_lead_bookmarks",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794180002000,
+      "tag": "0014_external_provider_discovery",
+      "breakpoints": true
     }
   ]
 }

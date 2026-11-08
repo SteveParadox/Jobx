@@ -2,6 +2,7 @@ import { closeDb, getDb } from '@/db';
 import * as s from '@/db/schema';
 import { pruneSearchHistory } from '@/domain/candidates';
 import { pruneDisallowedExternalLeads } from '@/domain/external-leads';
+import { runAutonomousProviderDiscovery, purgeUnlicensedProviderDiscovery } from '@/domain/discovery/provider-discovery';
 import { pruneRawPayloads, syncSource } from '@/domain/ingestion';
 import { processIngestionTask } from '@/domain/ingestion-tasks';
 import { expireSourceAuthorizations } from '@/domain/source-management';
@@ -36,6 +37,7 @@ async function tick() {
   await pruneRawPayloads();
   await pruneSearchHistory();
   await pruneDisallowedExternalLeads();
+  await purgeUnlicensedProviderDiscovery();
   await tickIngestion(queue);
   if (env.JOB_DISCOVERY_ENABLED) {
     // Crawl in a separate job so slow discovery cannot stall the platform heartbeat.
@@ -78,6 +80,10 @@ const worker = new Worker(
           env.JOB_DISCOVERY_SEEDS ?? '',
           env.JOB_DISCOVERY_INTERVAL_MINUTES,
         );
+      case 'provider-discovery':
+        if (!env.JOB_AUTONOMOUS_PROVIDER_DISCOVERY_ENABLED)
+          return { skipped: true, reason: 'provider_discovery_disabled' };
+        return runAutonomousProviderDiscovery();
       case 'import':
         return syncSource(job.data.sourceId, fetch, job.data.records);
       case 'sync':
@@ -121,6 +127,13 @@ if (env.APIFY_IMPORT_ENABLED && env.APIFY_TOKEN)
     { name: 'apify-import', data: {} },
   );
 else await queue.removeJobScheduler('apify-import');
+if (env.JOB_AUTONOMOUS_PROVIDER_DISCOVERY_ENABLED)
+  await queue.upsertJobScheduler(
+    'provider-discovery',
+    { every: env.JOB_AUTONOMOUS_PROVIDER_DISCOVERY_INTERVAL_HOURS * 3600000 },
+    { name: 'provider-discovery', data: {} },
+  );
+else await queue.removeJobScheduler('provider-discovery');
 await queue.add('tick', {}, { jobId: 'startup-' + Date.now() });
 log('worker_started');
 let closing = false;
