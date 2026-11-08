@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   parseAdzuna,
+  fetchAdzuna,
   parseJooble,
   parseUsaJobs,
   parseHimalayas,
@@ -176,6 +177,39 @@ describe('federated search input and official API adapters', () => {
     expect(results).toEqual([]);
     expect(request.mock.calls[0][0]).toMatch(/^https:\/\/data\.usajobs\.gov\/api\/search/);
     expect(JSON.stringify(results)).not.toContain('secret-key-for-test');
+  });
+  it('does not disguise malformed success responses as no vacancies', async () => {
+    const bad = vi.fn(async () => new Response(JSON.stringify({ error: 'invalid key' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    await expect(fetchAdzuna(
+      { q: 'builder', location: '', page: 1 },
+      { appId: 'example', appKey: 'example', logoUrl: '/official.png' },
+      ['gb'],
+      bad as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
+    await expect(fetchUsaJobs(
+      { q: 'nurse', location: '', page: 1 },
+      { apiKey: 'example', email: 'operator@example.com' },
+      false,
+      bad as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
+    await expect(fetchJooble(
+      { q: 'nurse', location: 'London', page: 1 },
+      { apiKey: 'example', region: 'gb' },
+      bad as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
+  });
+  it('keeps all twenty Himalayas search results rather than silently dropping five', () => {
+    const now = 1794150000000;
+    const jobs = Array.from({ length: 20 }, (_, i) => ({
+      guid: 'job-' + i,
+      title: 'Remote Engineer ' + i,
+      applicationLink: 'https://himalayas.app/jobs/job-' + i,
+      expiryDate: 4102444800,
+    }));
+    expect(parseHimalayas({ jobs }, now)).toHaveLength(20);
   });
   it('preserves first occurrence per exact source link, without inventing fuzzy merges', () => {
     const [original] = parseJooble({
