@@ -213,6 +213,21 @@ export async function syncSource(
         .for('update');
       if (!company || company.disabled || company.verificationStatus !== 'verified')
         throw new SourceError('EMPLOYER', 'Employer is not verified and enabled');
+      if (source.provider === 'manual_apify') {
+        // The importer checks this too, but the persistence boundary must
+        // independently reject a mismatched actor or employer identity.
+        const slug = `${slugify(company.name).slice(0, 60)}-${digest(
+          `${company.name}|${company.website}`,
+        ).slice(0, 8)}`;
+        const expected = 'apify_' + digest(
+          [options.apifyActorId!.trim(), slug, company.website].join('|'),
+        ).slice(0, 40);
+        if (source.boardToken !== expected)
+          throw new SourceError(
+            'SNAPSHOT_ORIGIN',
+            'Apify actor does not match the approved employer source',
+          );
+      }
       const seen = new Set<string>();
       for (const row of snapshot.records) {
         if (Date.now() - started > 180000)
