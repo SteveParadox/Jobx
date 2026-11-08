@@ -141,7 +141,7 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
         ? 'onsite'
         : 'unknown';
   const expiresAt = isoDate(item.date_valid_through);
-    const countryNames = list(item.countries_derived);
+  const countryNames = list(item.countries_derived);
   const country = countryNames.map(countryFromName).find(Boolean);
   if (workplace !== 'remote' && !country)
     return { skip: 'missing normalized country for physical workplace' };
