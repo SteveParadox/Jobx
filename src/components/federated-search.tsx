@@ -38,6 +38,10 @@ export function FederatedSearch() {
   const [market, setMarket] = useState('');
   const [provider, setProvider] = useState('all');
   const [remoteOnly, setRemoteOnly] = useState(false);
+  const [eligibleCountry, setEligibleCountry] = useState('');
+  const [employmentType, setEmploymentType] = useState('');
+  const [days, setDays] = useState('');
+  const [sort, setSort] = useState('relevance');
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -56,6 +60,10 @@ export function FederatedSearch() {
       remoteOnly: String(remoteOnly),
       page: String(nextPage),
       ...(market ? { market } : {}),
+      ...(eligibleCountry ? { eligibleCountry } : {}),
+      ...(employmentType ? { employmentType } : {}),
+      ...(days ? { days } : {}),
+      sort,
     });
     try {
       setResult(await api('federated-search?' + params.toString()));
@@ -136,6 +144,46 @@ export function FederatedSearch() {
               </select>
             </label>
           </div>
+          <fieldset className="form-grid">
+            <legend>Advanced filters (Jobx catalog only)</legend>
+            <label>
+              Advertised remote applicant country
+              <input
+                value={eligibleCountry}
+                onChange={(e) => setEligibleCountry(e.target.value.toUpperCase())}
+                maxLength={2}
+                placeholder="GB, NG, US…"
+                pattern="[A-Z]{2}"
+              />
+            </label>
+            <label>
+              Employment type
+              <select value={employmentType} onChange={(e) => setEmploymentType(e.target.value)}>
+                <option value="">Any</option>
+                <option value="FULL_TIME">Full time</option>
+                <option value="PART_TIME">Part time</option>
+                <option value="CONTRACTOR">Contract</option>
+                <option value="TEMPORARY">Temporary</option>
+                <option value="INTERN">Internship</option>
+              </select>
+            </label>
+            <label>
+              Posting age
+              <select value={days} onChange={(e) => setDays(e.target.value)}>
+                <option value="">Any</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+              </select>
+            </label>
+            <label>
+              Sort
+              <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                <option value="relevance">Relevance</option>
+                <option value="recent">Newest published listings</option>
+              </select>
+            </label>
+          </fieldset>
           <label className="checkbox">
             <input
               type="checkbox"

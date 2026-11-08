@@ -388,6 +388,7 @@ function SourceEditor({
               'lever',
               'lever_eu',
               'ashby',
+              'smartrecruiters',
               'authorized_json',
               'authorized_xml',
               'authorized_rss',

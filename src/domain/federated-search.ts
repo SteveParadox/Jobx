@@ -31,6 +31,14 @@ export const federatedSearchSchema = z
       .regex(/^[a-z]{2}$/)
       .optional(),
     remoteOnly: z.enum(['true', 'false']).default('false'),
+    // Structured filters apply to Jobx's approved catalog only.
+    eligibleCountry: z.string().regex(/^[A-Z]{2}$/).optional(),
+    employmentType: z.enum([
+      'FULL_TIME', 'PART_TIME', 'CONTRACTOR', 'TEMPORARY', 'INTERN',
+      'VOLUNTEER', 'PER_DIEM', 'OTHER',
+    ]).optional(),
+    days: z.coerce.number().int().min(1).max(365).optional(),
+    sort: z.enum(['relevance', 'recent']).default('relevance'),
     provider: z.enum(['all', 'jobx', 'himalayas', 'adzuna', 'usajobs', 'jooble']).default('all'),
     page: z.coerce.number().int().min(1).max(20).default(1),
   })
@@ -80,6 +88,10 @@ export async function federatedSearch(input: unknown, userId?: string) {
         page: options.page,
         ...(options.country ? { country: options.country } : {}),
         ...(options.remoteOnly === 'true' ? { workplace: 'remote' } : {}),
+        ...(options.eligibleCountry ? { eligibleCountry: options.eligibleCountry } : {}),
+        ...(options.employmentType ? { employmentType: options.employmentType } : {}),
+        ...(options.days ? { days: options.days } : {}),
+        sort: options.sort,
       });
       return result.jobs.map((job) => ({
         id: 'jobx:' + job.id,
