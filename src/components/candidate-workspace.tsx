@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AlertForm, api } from './actions';
 import { SearchPreferenceEditor } from './search-preference-editor';
+import { ExternalLeadsWorkspace } from './external-leads-workspace';
 import { Button, Empty, Notice } from './ui';
 type Data = Awaited<ReturnType<typeof candidateDashboard>>;
 type Serialized<T> = T extends Date
@@ -102,6 +103,7 @@ export function CandidateWorkspace() {
         {[
           'Overview',
           'Saved jobs',
+          'External leads',
           'Applications',
           'Alerts & searches',
           'Profile',
@@ -215,6 +217,7 @@ export function CandidateWorkspace() {
           )}
         </section>
       )}
+      {tab === 'External leads' && <ExternalLeadsWorkspace />}
       {tab === 'Applications' && (
         <section className="panel">
           <h2>Know where things stand.</h2>
@@ -530,6 +533,7 @@ export function CandidateWorkspace() {
                   api('preferences', 'PUT', {
                     emailAlertsEnabled: fields.get('emailAlertsEnabled') === 'on',
                     searchHistoryEnabled: fields.get('searchHistoryEnabled') === 'on',
+                    personalizationEnabled: fields.get('personalizationEnabled') === 'on',
                   }),
                 'Preferences saved.',
               );
@@ -543,6 +547,15 @@ export function CandidateWorkspace() {
               />
               Allow email job alerts I have subscribed to.
             </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                name="personalizationEnabled"
+                defaultChecked={data.preferences.personalizationEnabled}
+              />
+              Enable optional skill-based job matching using my Jobx profile.
+            </label>
+            <small>Off by default. Profile data is not sent to outside search providers.</small>
             <small>
               Turning this off cancels queued job-alert emails. In-app updates and essential account
               messages remain available. An email already being delivered cannot be recalled.

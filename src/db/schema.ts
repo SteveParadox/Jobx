@@ -372,6 +372,7 @@ export const candidatePreferences = pgTable('candidate_preferences', {
     .primaryKey()
     .references(() => user.id, { onDelete: 'cascade' }),
   emailAlertsEnabled: boolean('email_alerts_enabled').notNull().default(true),
+  personalizationEnabled: boolean('personalization_enabled').notNull().default(false),
   searchHistoryEnabled: boolean('search_history_enabled').notNull().default(false),
   historyConsentedAt: timestamp('history_consented_at', { withTimezone: true }),
   updatedAt: time('updated_at'),
@@ -727,5 +728,27 @@ export const discoveryCandidateChanges = pgTable(
   (t) => [
     index('discovery_changes_recent_idx').on(t.observedAt),
     index('discovery_changes_candidate_idx').on(t.candidateId, t.observedAt),
+  ],
+);
+
+/** Provider storage rights must be granted independently; no automatic public ingestion. */
+export const externalSavedLeads = pgTable(
+  'external_saved_leads',
+  {
+    id: id(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    leadKey: text('lead_key').notNull(),
+    title: text('title').notNull(),
+    company: text('company').notNull(),
+    location: text('location').notNull(),
+    url: text('url').notNull(),
+    status: text('status').notNull().default('saved'),
+    createdAt: time('created_at'),
+    updatedAt: time('updated_at'),
+  },
+  (t) => [
+    uniqueIndex('external_leads_owner_identity_idx').on(t.userId, t.provider, t.leadKey),
+    index('external_leads_owner_recent_idx').on(t.userId, t.createdAt),
   ],
 );
