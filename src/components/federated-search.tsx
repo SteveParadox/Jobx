@@ -87,7 +87,7 @@ export function FederatedSearch() {
               />
             </label>
             <label>
-              Location (optional)
+              External API location (optional)
               <input
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
@@ -141,8 +141,9 @@ export function FederatedSearch() {
           </div>
         </form>
         <p style={{ marginTop: 16 }}>
-          Live partner APIs require separately configured provider credentials and appropriate
-          display rights. Some providers support only certain markets. Results are not guaranteed
+          The location field applies to external API providers; use the structured filters on
+          the public Jobx catalog page for catalog locations. Live partner APIs require separately
+          configured credentials and display rights. Some providers support only certain markets. Results are not guaranteed
           open or eligible; check the original vacancy before applying.
         </p>
         {error && (
