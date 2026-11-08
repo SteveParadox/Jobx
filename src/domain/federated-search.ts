@@ -97,9 +97,8 @@ export async function federatedSearch(input: unknown) {
 
   if (selected('adzuna')) {
     const logo = env.FEDERATED_ADZUNA_ATTRIBUTION_LOGO_URL?.trim() ?? '';
-    const logoSafe =
-      /^https:\/\/[a-z0-9.-]+\/[a-z0-9/_.-]+$/i.test(logo) ||
-      (/^\/[a-z0-9/_.-]+$/i.test(logo) && !logo.includes('..'));
+    // Serve approved logo art from our own public directory, not an arbitrary third-party tracker.
+    const logoSafe = /^\/[a-z0-9/_-]+\.(?:png|svg|webp)$/i.test(logo) && !logo.includes('..');
     const approvedMarkets = [...new Set(
       (env.FEDERATED_ADZUNA_MARKETS ?? '')
         .split(',')
