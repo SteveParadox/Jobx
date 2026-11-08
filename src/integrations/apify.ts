@@ -351,15 +351,57 @@ export async function importApifyJobs(
         observedAt: new Date().toISOString(),
       },
       fieldPresence: [
-        'title', 'descriptionHtml', 'applyUrl', 'workplace', 'remoteEligibility', 'remoteCountries',
+        'title',
+        'descriptionHtml',
+        'applyUrl',
+        ...(Object.hasOwn(candidate.raw, 'ai_work_arrangement') ? ['workplace'] : []),
+        ...(Object.hasOwn(candidate.raw, 'locations_derived') ||
+        Object.hasOwn(candidate.raw, 'locations_alt') ||
+        Object.hasOwn(candidate.raw, 'ai_remote_location')
+          ? ['locationLabel']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'countries_derived') ? ['country'] : []),
+        ...(Object.hasOwn(candidate.raw, 'regions_derived') ? ['region'] : []),
+        ...(Object.hasOwn(candidate.raw, 'cities_derived') ? ['city'] : []),
+        ...(Object.hasOwn(candidate.raw, 'date_posted') ? ['originalPostedAt'] : []),
         ...(Object.hasOwn(candidate.raw, 'date_valid_through') ? ['expiresAt'] : []),
-        ...(Object.hasOwn(candidate.raw, 'ai_salary_min_value') || Object.hasOwn(candidate.raw, 'ai_salary_value') ? ['salaryMin'] : []),
-        ...(Object.hasOwn(candidate.raw, 'ai_salary_max_value') || Object.hasOwn(candidate.raw, 'ai_salary_value') ? ['salaryMax'] : []),
-        ...(Object.hasOwn(candidate.raw, 'ai_salary_currency') ? ['currency'] : []),
-        ...(Object.hasOwn(candidate.raw, 'ai_salary_unit_text') ? ['salaryPeriod'] : []),
+        ...(candidate.feed.data.salaryMin != null ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_min_value') &&
+          candidate.raw.ai_salary_min_value === null)
+          ? ['salaryMin']
+          : []),
+        ...(candidate.feed.data.salaryMax != null ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_max_value') &&
+          candidate.raw.ai_salary_max_value === null)
+          ? ['salaryMax']
+          : []),
+        ...(candidate.feed.data.currency ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_currency') &&
+          candidate.raw.ai_salary_currency === null)
+          ? ['currency']
+          : []),
+        ...(candidate.feed.data.salaryPeriod ||
+        (Object.hasOwn(candidate.raw, 'ai_salary_unit_text') &&
+          candidate.raw.ai_salary_unit_text === null)
+          ? ['salaryPeriod']
+          : []),
         ...(Object.hasOwn(candidate.raw, 'ai_key_skills') ? ['skills'] : []),
         ...(Object.hasOwn(candidate.raw, 'ai_employment_type') ? ['employmentType'] : []),
-        ...(Object.hasOwn(candidate.raw, 'ai_vacancies') || Object.hasOwn(candidate.raw, 'vacancy_count') ? ['vacancyCount'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_taxonomies_a') ||
+        Object.hasOwn(candidate.raw, 'source')
+          ? ['category']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_experience_level')
+          ? ['seniority', 'experienceMin']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_education') ? ['education'] : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_visa_sponsorship')
+          ? ['visaSponsorship']
+          : []),
+        ...(Object.hasOwn(candidate.raw, 'ai_vacancies') ||
+        Object.hasOwn(candidate.raw, 'vacancy_count')
+          ? ['vacancyCount']
+          : []),
       ],
     };
     batches.set(registration.source.id, [...(batches.get(registration.source.id) ?? []), row]);
