@@ -8,6 +8,7 @@ import { alertToken } from '@/lib/unsubscribe';
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { audit } from './jobs';
 import { getPublicJob, searchJobs } from './search';
+import { providerStorageAllowed } from './external-lead-tokens';
 import { historyFilters } from './search-state';
 import { active } from './seo';
 import {
@@ -387,7 +388,7 @@ export async function exportCandidateData(actor: Actor) {
     ...data,
     events,
     deliveries,
-    externalLeads,
+    externalLeads: externalLeads.filter((row) => providerStorageAllowed(row.provider)),
   };
 }
 export async function unsubscribe(secret: string) {
