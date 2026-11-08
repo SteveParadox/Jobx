@@ -10,7 +10,7 @@ const claimSchema = z.object({
   title: z.string().min(3).max(180),
   company: z.string().max(160),
   location: z.string().max(200),
-  url: z.url().max(3000),
+  url: z.url().max(2000),
 }).strict();
 export type ExternalLeadClaim = z.infer<typeof claimSchema>;
 export function providerStorageAllowed(provider: string) {
@@ -26,11 +26,13 @@ function sign(encoded: string) {
 }
 export function sealExternalLead(lead: SearchLead, userId: string, now = Date.now()) {
   if (!providerStorageAllowed(lead.provider)) return null;
-  const claim = claimSchema.parse({
+  const parsed = claimSchema.safeParse({
     userId, expiresAt: now + 15 * 60_000, provider: lead.provider,
     title: lead.title, company: lead.company, location: lead.location, url: lead.url,
   });
-  const encoded = Buffer.from(JSON.stringify(claim)).toString('base64url');
+  // An exceptionally long upstream URL must not break the rest of search.
+  if (!parsed.success) return null;
+  const encoded = Buffer.from(JSON.stringify(parsed.data)).toString('base64url');
   return encoded + '.' + sign(encoded).toString('base64url');
 }
 export function unsealExternalLead(token: string, userId: string, now = Date.now()): ExternalLeadClaim {

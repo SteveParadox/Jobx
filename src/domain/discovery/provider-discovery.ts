@@ -7,7 +7,7 @@ import { admin, type Actor } from '@/lib/auth';
 import { env } from '@/lib/config';
 import { AppError } from '@/lib/errors';
 import { digest } from '@/lib/security';
-import { and, desc, eq, lt, notInArray, sql } from 'drizzle-orm';
+import { and, eq, lt, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 export const autonomousDiscoverySeedSchema = z.array(z.object({
