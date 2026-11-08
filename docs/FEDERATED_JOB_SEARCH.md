@@ -65,8 +65,9 @@ All these variables are **server-side only** and default to disabled.
   `FEDERATED_ADZUNA_MARKETS=gb,us,ca` (choose authorized market codes), and
   `FEDERATED_ADZUNA_ATTRIBUTION_LOGO_URL=/images/adzuna-official-logo.png`.
 - **The logo file is not bundled.** Obtain authorized artwork yourself and
-  provide it at that path; verify the attribution in a real browser before
-  enabling display. Results include a linked "Jobs by" plus linked official image
+  place it in the application's `public/images/` directory at the configured
+  path. Remote logo URLs are deliberately disallowed; verify the official logo
+  and attribution in a real browser before enabling display. Results include a linked "Jobs by" plus linked official image
   at no smaller than 116×23 CSS pixels. Never enable with a missing/incorrect logo.
 - National API markets supported by the adapter: us, gb, au, ca, de, fr, nl, be,
   at, ch, it, es, pl, in, sg, nz, za, br and mx. Other countries do not map to
