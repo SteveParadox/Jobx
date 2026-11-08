@@ -296,7 +296,8 @@ export async function fetchJooble(
   request: JsonFetch = fetch,
 ): Promise<SearchLead[]> {
   if (!/^[a-z]{2}$/.test(credentials.region)) throw new Error('JOOBLE_REGION_INVALID');
-  const hostname = credentials.region === 'us' ? 'jooble.org' : credentials.region + '.jooble.org';
+  const regionalCode = credentials.region === 'gb' ? 'uk' : credentials.region;
+  const hostname = regionalCode === 'us' ? 'jooble.org' : regionalCode + '.jooble.org';
   const url = new URL('https://' + hostname + '/api/' + encodeURIComponent(credentials.apiKey));
   const payload = await requestJson(
     url,
