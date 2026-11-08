@@ -23,11 +23,11 @@ The platform keeps verified employer status, approved ingestion source, source-e
 
 New records use the existing `jobs.source_owner_id` and unique `source_job_mappings(source_id, external_id)`. Mapping payload contains Apify provider, configured actor identifier, original URL and observation timestamp. Sync run, first/last observation, original posted date, job changes and failure details use existing tables and retention policies. The current sync-get-dataset-items API does **not** return trustworthy Apify run/dataset IDs, so those identifiers are not recorded unless the API and storage schema are explicitly extended.
 
-The job identity is source-scoped. Never use employer name, shared application URL, or similar content alone to assign historic ownership. The source registry identity is what permits refresh and revocation. In a partial input, absent optional fields retain their previously authorized values; explicitly present nulls can clear them if permitted. Rejected records are quarantined by the existing ingestion service.
+The job identity is source-scoped. Never use employer name, shared application URL, or similar content alone to assign historic ownership. The source registry identity is what permits refresh and revocation. In a partial input, absent optional fields retain their previously authorized values; explicitly present nulls can clear them if permitted. A refresh validates the merged job record to prevent contradictory salary, date or eligibility data; invalid merges are quarantined. Claims whose field-level permission has been withdrawn are cleared on refresh rather than carried forward. Rejected records are quarantined by the existing ingestion service.
 
 ## Historical Apify records: safe reconciliation
 
-Earlier Apify code directly created unowned jobs. **Do not backfill these blindly.** The migration only adds eligibility/vacancy fields, without modifying ownership. Run the **read-only** inventory with `npm run apify:reconcile` against a staging copy (up to 500 unowned external jobs) and review the following equivalent SQL:
+Earlier Apify code directly created unowned jobs. **Do not backfill these blindly.** The migration only adds eligibility/vacancy fields, without modifying ownership. Run the **read-only** inventory with `npm run apify:reconcile` against a staging copy (all currently unowned external jobs, in bounded 500-row batches) and review the following equivalent SQL:
 
 ```sql
 SELECT j.id, j.title, j.apply_url, j.employer_id, e.name AS employer,
