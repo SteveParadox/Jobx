@@ -231,9 +231,9 @@ export async function syncSource(
         seen.add(row.externalId);
         const d = permittedData(row, source.permittedFields);
         const now = new Date();
-        const html = sanitizeDescription(d.descriptionHtml);
-        const text = plainText(html);
-        const fp = contentFingerprint(d);
+        let html = sanitizeDescription(d.descriptionHtml);
+        let text = plainText(html);
+        let fp = contentFingerprint(d);
         const [mapping] = await tx
           .select()
           .from(s.mappings)
@@ -242,6 +242,26 @@ export async function syncSource(
         let job = mapping
           ? (await tx.select().from(s.jobs).where(eq(s.jobs.id, mapping.jobId)).for('update'))[0]
           : undefined;
+        // A partial Apify row cannot null-out fields it did not actually contain.
+        // Routine source refreshes may edit only records still owned by this source.
+        if (job && job.sourceOwnerId === sourceId && row.fieldPresence) {
+          const incoming = d as Record<string, unknown>;
+          const previous = job as unknown as Record<string, unknown>;
+          for (const key of [
+            'locationLabel', 'country', 'region', 'city', 'employmentType', 'category',
+            'seniority', 'skills', 'experienceMin', 'education', 'visaSponsorship',
+            'salaryMin', 'salaryMax', 'currency', 'salaryPeriod', 'vacancyCount',
+            'originalPostedAt', 'expiresAt',
+          ]) {
+            if (!row.fieldPresence.includes(key)) {
+              const old = previous[key];
+              incoming[key] = old instanceof Date ? old.toISOString() : old;
+            }
+          }
+          html = sanitizeDescription(d.descriptionHtml);
+          text = plainText(html);
+          fp = contentFingerprint(d);
+        }
         let alias = false;
         if (!job) {
           // Same employer, same application URL, compatible title/location and full description.
@@ -288,6 +308,10 @@ export async function syncSource(
                 : publish
                   ? 'active'
                   : 'pending';
+        const effectiveStatus = job && (
+          job.status === 'rejected' ||
+          (['closed', 'expired', 'paused'].includes(job.status) && ['active', 'pending'].includes(nextStatus))
+        ) ? job.status : nextStatus;
         const values = {
           title: d.title,
           descriptionHtml: html,
@@ -340,9 +364,9 @@ export async function syncSource(
         } else if (job.sourceOwnerId !== sourceId) {
           // Employer-managed records and other authoritative sources keep control of the public copy.
           stats.protected++;
-        } else if (job.fingerprint !== fp || job.status !== nextStatus) {
+        } else if (job.fingerprint !== fp || job.status !== effectiveStatus) {
           const previous = job;
-          const status = nextStatus;
+          const status = effectiveStatus;
           [job] = await tx
             .update(s.jobs)
             .set({
@@ -371,7 +395,7 @@ export async function syncSource(
             },
           });
           await queueIndex(tx, job, job.status === 'active' ? 'URL_UPDATED' : 'URL_DELETED');
-        } else {
+        } else if (!job.lastVerifiedAt || now.getTime() - job.lastVerifiedAt.getTime() > 86400000) {
           await tx.update(s.jobs).set({ lastVerifiedAt: now }).where(eq(s.jobs.id, job.id));
         }
         await tx
