@@ -37,6 +37,8 @@ export function assessAdvertisedGeography(job: GeographyJob, country: string | n
         label: 'Advertised worldwide; confirm country and employment requirements',
       };
     if (job.remoteEligibility === 'restricted') {
+      if (job.remoteCountries.length === 0)
+        return { status: 'needs_review', label: 'Restricted remote locations are not specified' };
       if (!home)
         return { status: 'needs_review', label: 'Country-specific remote role; check locations' };
       if (job.remoteCountries.some((v) => v.toUpperCase() === home))
@@ -71,12 +73,19 @@ const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCa
 function containsPhrase(haystack: string, phrase: string) {
   const value = normalize(phrase);
   if (!value) return false;
-  const index = haystack.indexOf(value);
-  if (index < 0) return false;
-  // A bounded phrase avoids counting "Go" in "ongoing" or "Java" in "JavaScript".
-  const before = index === 0 ? '' : haystack[index - 1];
-  const after = haystack[index + value.length] ?? '';
-  return (!before || !/[a-z0-9]/i.test(before)) && (!after || !/[a-z0-9]/i.test(after));
+  // Look beyond the first occurrence: "JavaScript developer (Java)" must match Java.
+  // Boundaries avoid counting "Go" in "ongoing" or "Java" in "JavaScript".
+  let from = 0;
+  while (from < haystack.length) {
+    const index = haystack.indexOf(value, from);
+    if (index < 0) return false;
+    const before = index === 0 ? '' : haystack[index - 1];
+    const after = haystack[index + value.length] ?? '';
+    if ((!before || !/[a-z0-9]/i.test(before)) && (!after || !/[a-z0-9]/i.test(after)))
+      return true;
+    from = index + 1;
+  }
+  return false;
 }
 
 export function overlappingSkills(
@@ -108,10 +117,11 @@ export async function personalJobSearch(actor: Actor, input: unknown) {
     .where(eq(profiles.userId, actor.id))
     .limit(1);
   const skills = (profile?.skills ?? []).map((v) => v.trim()).filter(Boolean);
-  const country = profile?.country?.toUpperCase() ?? null;
+  const countryValue = profile?.country?.toUpperCase() ?? '';
+  const country = /^[A-Z]{2}$/.test(countryValue) ? countryValue : null;
   const terms = [...new Map(
     [options.q, ...skills, profile?.headline ?? '']
-      .map((term) => term.trim())
+      .map((term) => term.trim().slice(0, 160))
       .filter((term) => term.length >= 2)
       .map((term) => [term.toLowerCase(), term] as const),
   ).values()].slice(0, 5);
