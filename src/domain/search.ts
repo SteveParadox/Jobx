@@ -110,8 +110,10 @@ export function searchConditions(f: SearchFilters, now = new Date()) {
         eq(jobs.workplace, 'remote'),
         or(
           eq(jobs.remoteEligibility, 'worldwide'),
-          and(eq(jobs.remoteEligibility, 'restricted'),
-            sql`${jobs.remoteCountries} @> ARRAY[${f.eligibleCountry.toUpperCase()}]::text[]`),
+          and(
+            eq(jobs.remoteEligibility, 'restricted'),
+            sql`${jobs.remoteCountries} @> ARRAY[${f.eligibleCountry.toUpperCase()}]::text[]`,
+          ),
         ),
       ),
     );
