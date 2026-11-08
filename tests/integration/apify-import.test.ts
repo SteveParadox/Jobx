@@ -203,6 +203,10 @@ describe('Apify approval, provenance, refresh and publication', () => {
     await feed([changed]);
     const result = await run();
     expect(result.updated).toBe(0);
+    expect(result.imported).toBe(0);
+    expect(result.existing).toBe(0);
+    expect(result.quarantined).toBe(1);
+    expect(result.skipped).toBe(1);
     const [unchanged] = await ctx.db.select().from(s.jobs);
     expect(unchanged.salaryMin).toBe(60000);
     expect(unchanged.salaryMax).toBe(80000);
