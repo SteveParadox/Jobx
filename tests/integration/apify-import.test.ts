@@ -6,6 +6,8 @@ import { eq } from 'drizzle-orm';
 import * as s from '../../src/db/schema';
 import { createEmployer, transitionJob, verifyEmployer } from '../../src/domain/jobs';
 import { searchJobs } from '../../src/domain/search';
+import { syncSource } from '../../src/domain/ingestion';
+import { normalizedRecord } from '../../src/integrations/sources/normalize';
 import {
   changeSourceEnabled, registerSource, reviewSource, updateSource,
 } from '../../src/domain/source-management';
@@ -97,6 +99,28 @@ describe('Apify approval, provenance, refresh and publication', () => {
     await ctx.db.insert(s.user).values([root, owner]);
     employerId = (await createEmployer(owner, { name: companyName, website })).id;
     await feed([item()]);
+  });
+
+  it('rejects forged actor identity at the lower-level source synchronizer', async () => {
+    const source = await authorize();
+    const forgedRow = normalizedRecord({
+      externalId: 'forged-actor-attempt',
+      title: 'Remote Backend Engineer',
+      sourceUrl: 'https://careers.example.com/jobs/example-1',
+      applyUrl: 'https://careers.example.com/jobs/example-1',
+      descriptionHtml: description,
+      locationLabel: 'Remote',
+      workplace: 'remote',
+      remoteCountries: [],
+      remoteEligibility: 'unknown',
+    });
+    await expect(
+      syncSource(source.id, fetch, [forgedRow], {
+        apifyActorId: 'fixture~wrong-actor',
+        suppressMissing: true,
+      }),
+    ).rejects.toMatchObject({ code: 'SNAPSHOT_ORIGIN' });
+    expect(await ctx.db.select().from(s.jobs)).toHaveLength(0);
   });
 
   it('does not publish or persist a job with no approved source', async () => {
