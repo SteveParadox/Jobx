@@ -27,7 +27,7 @@ The job identity is source-scoped. Never use employer name, shared application U
 
 ## Historical Apify records: safe reconciliation
 
-Earlier Apify code directly created unowned jobs. **Do not backfill these blindly.** The migration only adds eligibility/vacancy fields, without modifying ownership. Use a read-only review query for inventory:
+Earlier Apify code directly created unowned jobs. **Do not backfill these blindly.** The migration only adds eligibility/vacancy fields, without modifying ownership. Run the **read-only** inventory with `npm run apify:reconcile` against a staging copy (up to 500 unowned external jobs) and review the following equivalent SQL:
 
 ```sql
 SELECT j.id, j.title, j.apply_url, j.employer_id, e.name AS employer,
