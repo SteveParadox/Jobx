@@ -43,7 +43,8 @@ function contentFingerprint(data: FeedJob['data']) {
     JSON.stringify(
       Object.fromEntries(
         Object.entries(values)
-          .filter(([, value]) => value !== undefined)
+          // Missing optional fields and explicit database NULL have one stable identity.
+          .filter(([, value]) => value !== undefined && value !== null)
           .sort(([a], [b]) => a.localeCompare(b)),
       ),
     ),
