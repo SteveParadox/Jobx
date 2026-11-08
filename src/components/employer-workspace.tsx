@@ -470,6 +470,8 @@ function JobEditor({
           region: optional('region'),
           city: optional('city'),
           workplace: value('workplace'),
+           remoteEligibility: value('remoteEligibility'),
+           vacancyCount: number('vacancyCount'),
           remoteCountries: value('remoteCountries')
             .split(',')
             .map((v) => v.trim().toUpperCase())

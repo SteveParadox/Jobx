@@ -133,10 +133,10 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
   const description = text(item.description_html) || text(item.description);
   if (!description) return { skip: 'missing description' };
   const workplaceText = text(item.ai_work_arrangement).toLowerCase();
-  const workplace = workplaceText.includes('remote')
-    ? 'remote'
-    : workplaceText.includes('hybrid')
-      ? 'hybrid'
+  const workplace = workplaceText.includes('hybrid')
+    ? 'hybrid'
+    : workplaceText.includes('remote')
+      ? 'remote'
       : workplaceText.includes('on-site') || workplaceText.includes('onsite')
         ? 'onsite'
         : 'unknown';
@@ -205,9 +205,10 @@ function mapItem(item: Record<string, unknown>): Candidate | { skip: string } {
     item.org_linkedin_website,
     item.domain_derived,
     item.organization_url,
-    item.url,
   );
   if (!website) return { skip: 'missing employer website' };
+  if (item.is_active === false || ['closed', 'expired'].includes(text(item.status).toLowerCase()))
+    feed.linkStatus = 'gone';
   return {
     feed,
     raw: item,
@@ -305,7 +306,6 @@ export async function importApifyJobs(
     const registration = byToken.get(token);
     if (
       !registration ||
-      registration.employer.slug !== candidate.employer.slug ||
       registration.employer.website !== candidate.employer.website ||
       registration.employer.name.trim().toLowerCase() !== candidate.employer.name.trim().toLowerCase() ||
       registration.employer.disabled ||

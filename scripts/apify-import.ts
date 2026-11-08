@@ -10,6 +10,6 @@ const result = await importApifyJobs({
   logger: (message) => console.log(message),
 });
 console.log(
-  `Fetched ${result.fetched}; ready ${result.ready}; imported ${result.imported}; already present ${result.existing}; skipped ${result.skipped}.${dryRun ? ' Dry run only.' : ''}`,
+  `Fetched ${result.fetched}; ready ${result.ready}; created ${result.imported}; updated ${result.updated}; already present ${result.existing}; awaiting source approval ${result.awaitingApproval}; skipped ${result.skipped}.${dryRun ? ' Dry run only.' : ''}`,
 );
 await closeDb();
