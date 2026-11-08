@@ -37,6 +37,8 @@ export type ApifyImportResult = {
   existing: number;
   updated: number;
   awaitingApproval: number;
+  quarantined: number;
+  protected: number;
   skipped: number;
 };
 type Candidate = {
@@ -324,6 +326,8 @@ export async function importApifyJobs(
         updated: 0,
         existing: 0,
         awaitingApproval: 0,
+        quarantined: 0,
+        protected: 0,
         skipped: 0,
       };
     }
@@ -352,6 +356,8 @@ export async function importApifyJobs(
       updated: 0,
       existing: 0,
       awaitingApproval: candidates.length,
+      quarantined: 0,
+      protected: 0,
       skipped: items.length - candidates.length,
     };
   }
@@ -448,6 +454,8 @@ export async function importApifyJobs(
   let imported = 0;
   let updated = 0;
   let existing = 0;
+  let quarantined = 0;
+  let protectedJobs = 0;
   for (const [sourceId, records] of batches) {
     // The actor query may be filtered, time-limited or incomplete. Never close absent jobs.
     const result = await syncSource(sourceId, fetch, records, {
@@ -456,7 +464,13 @@ export async function importApifyJobs(
     });
     imported += result.imported;
     updated += result.updated;
-    existing += records.length - result.imported;
+    quarantined += result.quarantined;
+    protectedJobs += result.protected;
+    // Rejected and protected rows are not successful existing-job refreshes.
+    existing += Math.max(
+      0,
+      result.count - result.imported - result.quarantined - result.protected,
+    );
     logger('SYNC ' + sourceId + ': ' + result.imported + ' created, ' + result.updated + ' updated, ' + result.quarantined + ' quarantined');
   }
   return {
@@ -466,6 +480,8 @@ export async function importApifyJobs(
     updated,
     existing,
     awaitingApproval,
-    skipped: items.length - candidates.length + awaitingApproval,
+    quarantined,
+    protected: protectedJobs,
+    skipped: items.length - candidates.length + awaitingApproval + quarantined + protectedJobs,
   };
 }
