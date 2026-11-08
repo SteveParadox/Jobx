@@ -148,8 +148,9 @@ are configured.
   Provider credentials never appear in public API responses or rendered pages.
 - Display links are restricted to source-provider HTTPS domains. Never fetch
   those returned links from the server or use them as ingestion authority.
-- If a provider fails or returns an invalid JSON envelope, its status is
-  reported and other sources still work. Partially successful Adzuna
+- If a provider fails, returns an invalid JSON envelope, or provides a page
+  containing only records with invalid destination links, its status is reported
+  and other sources still work. Partially successful Adzuna
   multi-market queries are marked partial. No empty/failing provider is
   represented as "zero jobs exist".
 - Provider search links preserve upstream attribution and application tracking,
