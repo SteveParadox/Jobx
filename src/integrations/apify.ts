@@ -16,7 +16,8 @@ const DEFAULT_ACTOR_ID = 'fantastic-jobs~career-site-job-listing-api';
 // set actor-specific filters explicitly via APIFY_INPUT and approved source scope.
 export const defaultApifyInput = {
   timeRange: '24h',
-  limit: 100,
+  // Keep the default actor request inexpensive; broaden only by explicit configuration.
+  limit: 20,
   descriptionType: 'html',
   includeCompanyDetails: true,
 };
