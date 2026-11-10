@@ -413,7 +413,8 @@ describe('candidate workflows', () => {
     // Replaying a legitimate link remains idempotent, but forged links fail.
     expect(await unsubscribe(alert.unsubscribeToken)).toBe(true);
     expect(await unsubscribe('forged-unsubscribe-token')).toBe(false);
-    const altered = alert.unsubscribeToken.slice(0, -1) +
+    const altered =
+      alert.unsubscribeToken.slice(0, -1) +
       (alert.unsubscribeToken.endsWith('A') ? 'B' : 'A');
     expect(await unsubscribe(altered)).toBe(false);
   });
