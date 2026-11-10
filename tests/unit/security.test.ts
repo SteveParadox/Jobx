@@ -75,8 +75,32 @@ describe('truthful validation', () => {
     expect(job.salaryMin).toBeUndefined();
     expect(job.visaSponsorship).toBeUndefined();
   });
-  it('rejects invented remote eligibility and contradictory compensation', () => {
-    expect(() => jobSchema.parse({ ...jobInput, workplace: 'remote' })).toThrow();
+  it('preserves unknown remote eligibility and rejects contradictory eligibility or compensation', () => {
+    // A remote posting does not establish which countries' applicants are eligible.
+    const remote = jobSchema.parse({ ...jobInput, workplace: 'remote' });
+    expect(remote.remoteEligibility ?? 'unknown').toBe('unknown');
+    expect(remote.remoteCountries).toEqual([]);
+
+    // Explicit eligibility claims must agree with the supplied country evidence.
+    expect(() =>
+      jobSchema.parse({
+        ...jobInput,
+        workplace: 'remote',
+        remoteEligibility: 'restricted',
+      }),
+    ).toThrow();
+    expect(() =>
+      jobSchema.parse({
+        ...jobInput,
+        workplace: 'remote',
+        remoteEligibility: 'worldwide',
+        remoteCountries: ['NG'],
+      }),
+    ).toThrow();
+    expect(() =>
+      jobSchema.parse({ ...jobInput, remoteEligibility: 'worldwide' }),
+    ).toThrow();
+
     expect(() => jobSchema.parse({ ...jobInput, salaryMin: 10 })).toThrow();
     expect(() =>
       jobSchema.parse({
