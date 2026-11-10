@@ -59,6 +59,11 @@ const pages: Record<string, { title: string; description: string; body: string }
     body: '<p>Sign in with an account authorized for the employer team or administration area. Contact the organization owner if you believe access is missing.</p>',
   },
 };
+// Known support pages are finite: reject unknown slugs before page streaming starts.
+export const dynamicParams = false;
+export function generateStaticParams() {
+  return Object.keys(pages).map((slug) => ({ slug }));
+}
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const p = pages[slug];
