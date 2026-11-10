@@ -125,7 +125,7 @@ describe('federated search input and official API adapters', () => {
     expect(cachedHimalayas({ jobs: [original] })).toBeNull();
   });
   it('sends numeric Jooble pagination fields to the approved country API', async () => {
-    const request = vi.fn(async (_url: string, _init?: RequestInit) =>
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
       new Response(JSON.stringify({ jobs: [] }), {
         headers: { 'Content-Type': 'application/json' },
       }));
@@ -139,7 +139,7 @@ describe('federated search input and official API adapters', () => {
     expect(JSON.parse(String(call[1]?.body))).toMatchObject({ page: 3, ResultOnPage: 15 });
   });
   it('calls the keyless Himalayas search endpoint without profile data or credentials', async () => {
-    const request = vi.fn(async (_url: string, _init?: RequestInit) =>
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
       new Response(JSON.stringify({ jobs: [] }), {
         headers: { 'Content-Type': 'application/json' },
       }));
@@ -173,7 +173,7 @@ describe('federated search input and official API adapters', () => {
     expect(jobs[0].provenance).toBe('external_api');
   });
   it('rejects redirects and does not expose a provider API credential in output', async () => {
-    const request = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+    const request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => new Response(
       JSON.stringify({ SearchResult: { SearchResultItems: [] } }),
       { headers: { 'Content-Type': 'application/json' } },
     ));
