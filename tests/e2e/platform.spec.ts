@@ -209,6 +209,7 @@ test('Google and GitHub choices are consistent across employer and account acces
   page,
 }) => {
   await page.goto('/auth?next=%2Femployers');
+  await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
   const googleEnabled = await page.getByRole('button', { name: 'Continue with Google' }).count();
   const githubEnabled = await page.getByRole('button', { name: 'Continue with GitHub' }).count();
   expect(googleEnabled).toBeLessThanOrEqual(1);
@@ -223,6 +224,9 @@ test('Google and GitHub choices are consistent across employer and account acces
   );
 
   await page.goto('/employers');
+  await expect(
+    page.getByRole('heading', { name: 'Your next great hire starts here.' }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(
     googleEnabled,
   );
@@ -244,6 +248,7 @@ test('configured OAuth buttons initiate sign-in with the employer return path', 
     });
   });
   await page.goto('/auth?next=%2Femployers');
+  await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
 
   for (const provider of ['Google', 'GitHub'] as const) {
     const button = page.getByRole('button', { name: `Continue with ${provider}` });
