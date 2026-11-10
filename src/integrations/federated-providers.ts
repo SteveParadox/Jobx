@@ -204,7 +204,7 @@ export function parseHimalayas(payload: unknown, now = Date.now()): SearchLead[]
       );
       return item ? { ...item, expiresAt: expiry } : null;
     })
-    .filter((job): job is SearchLead => job !== null);
+    .filter((job): job is NonNullable<typeof job> => job !== null);
 }
 export function parseJooble(payload: unknown): SearchLead[] {
   return rows(obj(payload).jobs)
