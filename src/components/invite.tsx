@@ -34,24 +34,36 @@ export function Invitation() {
 }
 export function Unsubscribe() {
   const params = useSearchParams();
+  const token = params.get('token');
   const [message, setMessage] = useState('');
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
   return (
     <section className="auth-card">
       <h1>Keep your inbox on your terms.</h1>
       <p>Disable this alert. This does not delete your account or other alerts.</p>
       <Button
+        disabled={busy || !token}
         onClick={async () => {
+          if (!token || busy) return;
+          setBusy(true);
+          setError(false);
+          setMessage('');
           try {
-            await api('unsubscribe', 'POST', { token: params.get('token') });
-            setMessage('This alert is disabled. No further digests will be sent.');
+            await api('unsubscribe', 'POST', { token });
+            setMessage('This alert is disabled. No new digests will be scheduled.');
           } catch (e) {
+            setError(true);
             setMessage((e as Error).message);
+          } finally {
+            setBusy(false);
           }
         }}
       >
-        Unsubscribe from this alert
+        {busy ? 'Unsubscribing…' : 'Unsubscribe from this alert'}
       </Button>
-      {message && <Notice>{message}</Notice>}
+      {!token && <Notice error>This unsubscribe link is missing its token.</Notice>}
+      {message && <Notice error={error}>{message}</Notice>}
     </section>
   );
 }

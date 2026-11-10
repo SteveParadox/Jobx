@@ -27,6 +27,7 @@ import { getPublicJob, searchJobs, suggestions } from '../../src/domain/search';
 import { acceptInvite, invite } from '../../src/domain/team';
 import { employerAccess } from '../../src/lib/auth';
 import { digest } from '../../src/lib/security';
+import { verifyAlertToken } from '../../src/lib/unsubscribe';
 import { actor, description, jobInput, testDatabase } from '../helpers';
 vi.mock('../../src/lib/email', () => ({ sendEmail: vi.fn(async () => 'email-provider-id') }));
 let ctx: Awaited<ReturnType<typeof testDatabase>>;
@@ -408,8 +409,38 @@ describe('candidate workflows', () => {
       channel: 'email',
       consent: true,
     });
+    expect(verifyAlertToken(alert.unsubscribeToken)).toBe(true);
     expect(await unsubscribe(alert.unsubscribeToken)).toBe(true);
     expect((await ctx.db.select().from(s.alerts))[0].enabled).toBe(false);
+    // Replaying a legitimate link remains idempotent, but forged links fail.
+    expect(await unsubscribe(alert.unsubscribeToken)).toBe(true);
+    expect(await unsubscribe('forged-unsubscribe-token')).toBe(false);
+    const altered =
+      alert.unsubscribeToken.slice(0, -1) +
+      (alert.unsubscribeToken.endsWith('A') ? 'B' : 'A');
+    expect(verifyAlertToken(altered)).toBe(false);
+    expect(await unsubscribe(altered)).toBe(false);
+    const swappedId = crypto.randomUUID() + '.' + alert.unsubscribeToken.split('.')[1];
+    expect(verifyAlertToken(swappedId)).toBe(false);
+    expect(await unsubscribe(swappedId)).toBe(false);
+  });
+  it('preserves previously issued hash-only unsubscribe tokens', async () => {
+    const alert = await createAlert(candidate, {
+      name: 'Legacy alert',
+      filters: {},
+      frequency: 'daily',
+      channel: 'email',
+      consent: true,
+    });
+    const legacyToken = 'previously-issued-random-unsubscribe-secret';
+    await ctx.db
+      .update(s.alerts)
+      .set({ unsubscribeHash: digest(legacyToken) })
+      .where(eq(s.alerts.id, alert.id));
+    expect(verifyAlertToken(legacyToken)).toBe(false);
+    expect(await unsubscribe(legacyToken)).toBe(true);
+    const [updated] = await ctx.db.select().from(s.alerts).where(eq(s.alerts.id, alert.id));
+    expect(updated.enabled).toBe(false);
   });
   it('generates one digest and one match notification per alert/job', async () => {
     const a = await createAlert(candidate, {

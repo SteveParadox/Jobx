@@ -4,7 +4,6 @@ import { searchHref, searchSummary } from '@/domain/search-state';
 import { jobPath } from '@/domain/seo';
 import { authClient } from '@/lib/auth-client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AlertForm, api } from './actions';
 import { SearchPreferenceEditor } from './search-preference-editor';
@@ -19,7 +18,6 @@ type Serialized<T> = T extends Date
       ? { [P in keyof T]: Serialized<T[P]> }
       : T;
 export function CandidateWorkspace() {
-  const router = useRouter();
   const [data, setData] = useState<Serialized<Data> | null>(null);
   const [tab, setTab] = useState('Overview');
   const [message, setMessage] = useState('');
@@ -91,8 +89,15 @@ export function CandidateWorkspace() {
           <Button
             variant="secondary"
             onClick={async () => {
-              await authClient.signOut();
-              router.push('/');
+              try {
+                const result = await authClient.signOut();
+                if (result.error) throw new Error('Sign-out failed');
+                // Clear cached private state when ending the session.
+                window.location.replace('/');
+              } catch {
+                setError(true);
+                setMessage('Sign-out failed. Please try again.');
+              }
             }}
           >
             Sign out
@@ -594,14 +599,22 @@ export function CandidateWorkspace() {
           </p>
           <form
             className="stack"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              void run(async () => {
-                await api('account/delete', 'POST', {
-                  confirmation: new FormData(e.currentTarget).get('confirmation'),
-                });
-                router.push('/');
-              });
+              const confirmation = new FormData(e.currentTarget).get('confirmation');
+              setBusy(true);
+              setMessage('');
+              setError(false);
+              try {
+                await api('account/delete', 'POST', { confirmation });
+                // An erased account must not remain visible in browser route state.
+                window.location.replace('/');
+              } catch (cause) {
+                setError(true);
+                setMessage((cause as Error).message);
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             <label>

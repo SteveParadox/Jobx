@@ -62,27 +62,32 @@ export async function Results({
         <section>
           <div className="results-toolbar">
             <h2>
-              {result.total} active {result.total === 1 ? 'opportunity' : 'opportunities'}
+              {filters
+                ? `${result.total} active ${result.total === 1 ? 'opportunity' : 'opportunities'}`
+                : 'Check your search filters'}
             </h2>
-            <SaveSearch filters={clean} />
+            {filters && env.DATABASE_URL && <SaveSearch filters={filters} />}
           </div>
           {!parsed.success && (
-            <Notice error>{parsed.error.issues.map((i) => i.message).join('. ')}</Notice>
+            <Notice error>
+              Some search filters are invalid. Check the selected values and try again.
+            </Notice>
           )}
-          {result.jobs.length ? (
-            <div className="job-list">
-              {result.jobs.map((job) => (
-                <JobCard key={job.id} job={job} />
-              ))}
-            </div>
-          ) : (
-            <Empty title="A good search starts with possibilities">
-              {env.DATABASE_URL
-                ? 'No active vacancies match these criteria. Broaden your filters or create an alert for future openings.'
-                : 'Authorized inventory has not been connected yet. No demo roles are shown as live opportunities.'}
-            </Empty>
-          )}
-          {result.total > result.pageSize && (
+          {filters &&
+            (result.jobs.length ? (
+              <div className="job-list">
+                {result.jobs.map((job) => (
+                  <JobCard key={job.id} job={job} />
+                ))}
+              </div>
+            ) : (
+              <Empty title="A good search starts with possibilities">
+                {env.DATABASE_URL
+                  ? 'No active vacancies match these criteria. Broaden your filters or create an alert for future openings.'
+                  : 'Authorized inventory has not been connected yet. No demo roles are shown as live opportunities.'}
+              </Empty>
+            ))}
+          {filters && result.total > result.pageSize && (
             <nav className="pagination" aria-label="Search pagination">
               {result.page > 1 && (
                 <Link href={pageUrl(result.page - 1)} rel="prev">
@@ -99,11 +104,13 @@ export async function Results({
               )}
             </nav>
           )}
-          <section className="panel" style={{ marginTop: 30 }}>
-            <h2>Let the next opening find you.</h2>
-            <p>Get a digest of newly published roles matching this search.</p>
-            <AlertForm filters={clean} />
-          </section>
+          {filters && env.DATABASE_URL && (
+            <section className="panel" style={{ marginTop: 30 }}>
+              <h2>Let the next opening find you.</h2>
+              <p>Get a digest of newly published roles matching this search.</p>
+              <AlertForm filters={filters} />
+            </section>
+          )}
         </section>
       </div>
     </>

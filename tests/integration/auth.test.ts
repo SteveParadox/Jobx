@@ -87,6 +87,30 @@ it('registers, verifies email, signs in and resolves a real session', async () =
     .where(eq(s.session.userId, actor!.id));
   expect(await currentActor(req)).toBeNull();
 });
+it('keeps duplicate signup responses indistinguishable without sending a phantom email', async () => {
+  const email = 'duplicate-signup-fixture@example.com';
+  const details = {
+    email,
+    password: 'duplicate-fixture-password-123',
+    name: 'First Registration',
+    callbackURL: '/auth',
+  };
+  const first = await authRoute(request('sign-up/email', details));
+  expect(first.status).toBe(200);
+  const firstEmails = mail.messages.filter((message) => message.to === email);
+  expect(firstEmails).toHaveLength(1);
+  expect(firstEmails[0].subject).toBe('Verify your email');
+
+  const repeated = await authRoute(
+    request('sign-up/email', { ...details, name: 'Duplicate Registration' }),
+  );
+  expect(repeated.status).toBe(200);
+  expect(mail.messages.filter((message) => message.to === email)).toHaveLength(1);
+  const matches = await ctx.db.select().from(s.user).where(eq(s.user.email, email));
+  expect(matches).toHaveLength(1);
+  expect(matches[0].name).toBe('First Registration');
+});
+
 it('returns an authentication rejection, not a server error, for invalid credentials', async () => {
   const response = await authRoute(
     request('sign-in/email', {

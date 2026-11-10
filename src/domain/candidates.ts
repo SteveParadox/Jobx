@@ -4,7 +4,7 @@ import type { Actor } from '@/lib/auth';
 import { brand } from '@/lib/config';
 import { AppError, requireValue } from '@/lib/errors';
 import { digest } from '@/lib/security';
-import { alertToken } from '@/lib/unsubscribe';
+import { alertToken, verifyAlertToken } from '@/lib/unsubscribe';
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { audit } from './jobs';
 import { getPublicJob, searchJobs } from './search';
@@ -427,7 +427,7 @@ export async function exportCandidateData(actor: Actor) {
 }
 export async function unsubscribe(secret: string) {
   const id = secret.split('.')[0];
-  const signed = /^[0-9a-f-]{36}$/.test(id) && digest(secret) === digest(alertToken(id));
+  const signed = verifyAlertToken(secret);
   const [alert] = await getDb()
     .update(s.alerts)
     .set({ enabled: false })
