@@ -11,7 +11,8 @@ describe('API endpoint error diagnostics', () => {
     }, inspect);
 
     expect(response.status).toBe(500);
-    expect(inspect).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(inspect).toHaveBeenCalledTimes(1);
+    expect(inspect).toHaveBeenCalledWith(failure);
     expect(JSON.stringify(await response.json())).not.toContain('private internal diagnostic');
   });
 
