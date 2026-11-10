@@ -26,12 +26,26 @@ export function clientAddress(req: Request): string {
   const address = forwarded?.split(',')[0]?.trim() ?? '';
   return isIP(address) ? address : 'unverified';
 }
-/** Overwrite the internal auth identity; callers cannot supply their own limiter key. */
+/** Overwrite the internal auth identity; callers cannot supply their own limiter key.
+ * Construct from the URL instead of cloning a framework Request instance: Next.js
+ * request wrappers can fail Undici's private-state checks when used as Request input.
+ */
 export function authClientRequest(req: Request): Request {
   const address = clientAddress(req);
   const headers = new Headers(req.headers);
   headers.set('x-careeratlas-auth-client', address === 'unverified' ? '0.0.0.0' : address);
-  return new Request(req, { headers });
+
+  const init: RequestInit & { duplex?: 'half' } = {
+    method: req.method,
+    headers,
+    signal: req.signal,
+  };
+  if (req.body) {
+    init.body = req.body;
+    // Node.js requires this for a streaming request body.
+    init.duplex = 'half';
+  }
+  return new Request(req.url, init);
 }
 export async function rateLimit(key: string, limit = 30, window = 60) {
   if (!env.REDIS_URL) {
