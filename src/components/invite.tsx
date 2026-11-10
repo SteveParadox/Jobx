@@ -35,6 +35,7 @@ export function Invitation() {
 export function Unsubscribe() {
   const params = useSearchParams();
   const [message, setMessage] = useState('');
+  const [error, setError] = useState(false);
   return (
     <section className="auth-card">
       <h1>Keep your inbox on your terms.</h1>
@@ -42,16 +43,18 @@ export function Unsubscribe() {
       <Button
         onClick={async () => {
           try {
+            setError(false);
             await api('unsubscribe', 'POST', { token: params.get('token') });
             setMessage('This alert is disabled. No further digests will be sent.');
           } catch (e) {
+            setError(true);
             setMessage((e as Error).message);
           }
         }}
       >
         Unsubscribe from this alert
       </Button>
-      {message && <Notice>{message}</Notice>}
+      {message && <Notice error={error}>{message}</Notice>}
     </section>
   );
 }
