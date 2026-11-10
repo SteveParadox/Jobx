@@ -59,7 +59,7 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
                 email,
                 password,
                 name: String(d.get('name')),
-                callbackURL: '/auth',
+                callbackURL: employerFlow ? '/auth?next=%2Femployers' : '/auth',
               });
               if (r.error) throw new Error(r.error.message);
               setMessage('Check your email to verify your account, then sign in.');
