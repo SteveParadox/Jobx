@@ -20,7 +20,9 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
   const [busy, setBusy] = useState(false);
   return (
     <div className="auth-card">
-      <div className="eyebrow">{employerFlow ? 'EMPLOYER ACCOUNT ACCESS' : 'YOUR CAREER WORKSPACE'}</div>
+      <div className="eyebrow">
+        {employerFlow ? 'EMPLOYER ACCOUNT ACCESS' : 'YOUR CAREER WORKSPACE'}
+      </div>
       <h1>
         {mode === 'reset'
           ? 'Choose a new password'
