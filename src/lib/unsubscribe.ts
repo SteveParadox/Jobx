@@ -13,7 +13,10 @@ export function alertToken(id: string) {
 
 /** Recognize canonical signed tokens without leaking partial HMAC matches through string comparison. */
 export function verifyAlertToken(token: string): boolean {
-  const match = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\.([A-Za-z0-9_-]{43})$/.exec(token);
+  const match =
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43})$/.exec(
+      token,
+    );
   if (!match) return false;
   const expected = Buffer.from(alertToken(match[1]));
   const supplied = Buffer.from(token);
