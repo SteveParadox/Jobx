@@ -15,7 +15,13 @@ type Applicant = {
   candidate: { id: string; name: string; email: string };
 };
 const stages = ['new', 'reviewing', 'shortlisted', 'interview', 'offer', 'hired', 'rejected'];
-export function EmployerWorkspace() {
+export function EmployerWorkspace({
+  googleEnabled = false,
+  githubEnabled = false,
+}: {
+  googleEnabled?: boolean;
+  githubEnabled?: boolean;
+}) {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [org, setOrg] = useState('');
   const [role, setRole] = useState('');
@@ -101,6 +107,8 @@ export function EmployerWorkspace() {
       <EmployerAccessGate
         verificationRequired={accessState === 'verify-email'}
         onRetry={retryAccess}
+        googleEnabled={googleEnabled}
+        githubEnabled={githubEnabled}
       />
     );
   }
