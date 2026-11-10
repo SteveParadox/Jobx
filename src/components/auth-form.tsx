@@ -1,10 +1,18 @@
 'use client';
 import { authClient } from '@/lib/auth-client';
+import { authErrorMessage } from '@/lib/auth-error-message';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { SocialSignIn } from './social-sign-in';
 import { Button, Notice } from './ui';
-export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
+export function AuthForm({
+  googleEnabled = false,
+  githubEnabled = false,
+}: {
+  googleEnabled?: boolean;
+  githubEnabled?: boolean;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get('token') ?? undefined;
@@ -13,11 +21,10 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(
     token ? 'reset' : params.get('mode') === 'register' ? 'register' : 'login',
   );
-  const [message, setMessage] = useState(
-    params.get('error') ? 'The link is invalid or expired. Request a new one.' : '',
-  );
-  const [error, setError] = useState(false);
+  const [message, setMessage] = useState(authErrorMessage(params.get('error')));
+  const [error, setError] = useState(Boolean(params.get('error')));
   const [busy, setBusy] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   return (
     <div className="auth-card">
       <div className="eyebrow">
@@ -33,13 +40,25 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
       <p>One account for your search, applications and employer teams.</p>
       {!['forgot', 'reset'].includes(mode) && (
         <div className="auth-tabs" role="tablist" aria-label="Account access">
-          <button role="tab" aria-selected={mode === 'login'} onClick={() => setMode('login')}>
+          <button
+            role="tab"
+            aria-selected={mode === 'login'}
+            onClick={() => {
+              setMode('login');
+              setMessage('');
+              setError(false);
+            }}
+          >
             Sign in
           </button>
           <button
             role="tab"
             aria-selected={mode === 'register'}
-            onClick={() => setMode('register')}
+            onClick={() => {
+              setMode('register');
+              setMessage('');
+              setError(false);
+            }}
           >
             Create account
           </button>
@@ -120,7 +139,13 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
         )}
         {mode === 'register' && (
           <label className="checkbox">
-            <input type="checkbox" required />I accept the <Link href="/terms">Terms</Link> and have
+            <input
+              type="checkbox"
+              required
+              checked={termsAccepted}
+              onChange={(event) => setTermsAccepted(event.target.checked)}
+            />
+            I accept the <Link href="/terms">Terms</Link> and have
             read the <Link href="/privacy">Privacy notice</Link>.
           </label>
         )}
@@ -163,23 +188,16 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
           Back to sign in
         </button>
       )}
-      {googleEnabled && mode === 'login' && (
-        <Button
-          variant="secondary"
-          style={{ width: '100%', marginTop: 15 }}
-          onClick={async () => {
-            const r = await authClient.signIn.social({
-              provider: 'google',
-              callbackURL: destination,
-            });
-            if (r.error) {
-              setError(true);
-              setMessage(r.error.message ?? 'Google sign in failed');
-            }
-          }}
-        >
-          Continue with Google
-        </Button>
+      {(mode === 'login' || mode === 'register') && (
+        <SocialSignIn
+          key={mode}
+          googleEnabled={googleEnabled}
+          githubEnabled={githubEnabled}
+          callbackURL={destination}
+          errorCallbackURL={employerFlow ? '/auth?next=%2Femployers' : '/auth'}
+          allowSignUp={mode === 'register'}
+          termsAccepted={termsAccepted}
+        />
       )}
     </div>
   );

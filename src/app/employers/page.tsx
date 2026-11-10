@@ -1,5 +1,6 @@
 import { EmployerWorkspace } from '@/components/employer-workspace';
 import { metadata } from '@/domain/seo';
+import { env } from '@/lib/config';
 export const generateMetadata = () =>
   metadata(
     'Employer workspace',
@@ -8,5 +9,10 @@ export const generateMetadata = () =>
     false,
   );
 export default function Employers() {
-  return <EmployerWorkspace />;
+  return (
+    <EmployerWorkspace
+      googleEnabled={Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)}
+      githubEnabled={Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET)}
+    />
+  );
 }

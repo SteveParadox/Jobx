@@ -13,7 +13,10 @@ export const generateMetadata = () =>
 export default function Auth() {
   return (
     <Suspense fallback={<p className="container">Loading account access…</p>}>
-      <AuthForm googleEnabled={Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)} />
+      <AuthForm
+        googleEnabled={Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)}
+        githubEnabled={Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET)}
+      />
     </Suspense>
   );
 }

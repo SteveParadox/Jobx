@@ -205,6 +205,90 @@ test('employer sign-in gate offers a styled entry and returns users to the works
   );
 });
 
+test('Google and GitHub choices are consistent across employer and account access', async ({
+  page,
+}) => {
+  await page.goto('/auth?next=%2Femployers');
+  await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
+  const googleEnabled = await page.getByRole('button', { name: 'Continue with Google' }).count();
+  const githubEnabled = await page.getByRole('button', { name: 'Continue with GitHub' }).count();
+  expect(googleEnabled).toBeLessThanOrEqual(1);
+  expect(githubEnabled).toBeLessThanOrEqual(1);
+
+  await page.getByRole('tab', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(
+    googleEnabled,
+  );
+  await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toHaveCount(
+    githubEnabled,
+  );
+
+  await page.goto('/employers');
+  await expect(
+    page.getByRole('heading', { name: 'Your next great hire starts here.' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(
+    googleEnabled,
+  );
+  await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toHaveCount(
+    githubEnabled,
+  );
+});
+
+for (const providerName of ['Google', 'GitHub'] as const) {
+  test(`${providerName} OAuth starts the correct login and signup flows`, async ({ page }) => {
+    const requests: Array<{
+      provider: string;
+      callbackURL: string;
+      errorCallbackURL: string;
+      requestSignUp: boolean;
+    }> = [];
+    await page.route('**/api/auth/sign-in/social', async (route) => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'OAuth test interruption' }),
+      });
+    });
+
+    await page.goto('/auth?next=%2Femployers');
+    await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
+    const providerButton = page.getByRole('button', { name: `Continue with ${providerName}` });
+
+    // Report each missing provider as skipped, never count it as a passed test.
+    test.skip(
+      (await providerButton.count()) === 0,
+      `${providerName} OAuth credentials not configured in the E2E server.`,
+    );
+
+    await providerButton.click();
+    await expect(page.getByRole('alert')).toContainText('OAuth test interruption');
+    expect(requests.at(-1)).toMatchObject({
+      provider: providerName.toLowerCase(),
+      callbackURL: '/employers',
+      errorCallbackURL: '/auth?next=%2Femployers',
+      requestSignUp: false,
+    });
+
+    await page.getByRole('tab', { name: 'Create account' }).click();
+    const requestsBeforeConsent = requests.length;
+    await providerButton.click();
+    await expect(page.getByRole('alert')).toContainText('Please accept the Terms');
+    expect(requests).toHaveLength(requestsBeforeConsent);
+
+    await page.getByRole('checkbox').check();
+    await providerButton.click();
+    await expect(page.getByRole('alert')).toContainText('OAuth test interruption');
+    expect(requests.at(-1)).toMatchObject({
+      provider: providerName.toLowerCase(),
+      callbackURL: '/employers',
+      errorCallbackURL: '/auth?next=%2Femployers',
+      requestSignUp: true,
+    });
+  });
+}
+
 test('employer workspace distinguishes API failures from sign-in requirements', async ({
   page,
 }) => {
@@ -245,6 +329,8 @@ test('unverified employers see email verification instead of a generic sign-in p
   ).toBeVisible();
   await expect(page.getByRole('button', { name: "I've verified my email" })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in to continue' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toHaveCount(0);
 });
 
 test('employer drafts a job and submits it for approval', async ({ page }) => {

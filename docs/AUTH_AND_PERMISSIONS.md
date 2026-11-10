@@ -1,8 +1,26 @@
 # Authentication and permissions
 
-Better Auth provides email/password authentication, verification, password reset, session expiry and optional Google OAuth. Passwords use the library's password handling rather than custom hashing. Passwords require at least 12 characters. Email verification is required before privileged account operations. A reset revokes old sessions.
+Better Auth provides email/password authentication, verification, password reset, session expiry and optional Google and GitHub OAuth. Passwords use the library's password handling rather than custom hashing. Passwords require at least 12 characters. Email verification is required before privileged account operations. A reset revokes old sessions.
 
 The mounted POST auth handler independently enforces the configured exact origin, in addition to library defenses and Redis request limits. Configure a trusted reverse proxy to overwrite forwarded client-IP headers; do not expose an origin that trusts arbitrary user-supplied proxy headers directly. Mutation APIs require a matching `Origin`. Webhooks are separate and authenticated by provider signatures, not browser cookies.
+
+## Optional Google and GitHub sign-in
+
+Email/password works without OAuth credentials. Google and GitHub buttons appear on the account login/registration page and the signed-out employer entry screen **only after** the corresponding provider's client ID and client secret have both been set. There is no browser-side secret or OAuth access token in client props. The server supplies only availability booleans.
+
+Both OAuth providers use `disableImplicitSignUp: true`. The login tab and employer entry screen are **sign-in only**: a brand-new user must select **Create account**, acknowledge the Terms/Privacy notice checkbox, and then choose Google or GitHub. The registration tab sends `requestSignUp: true` only after that checkbox is selected. This is UI consent validation, **not a server-side consent receipt**; because OAuth request flags are client-controllable, an audit-grade consent requirement still needs a versioned, server-side record/verification gate before activating production registration.
+
+1. Create a Google OAuth 2.0 **Web application** in Google Cloud Console, and configure the consent screen. Add `http://localhost:3000/api/auth/callback/google` as an authorized redirect URI for local development. In production add `https://YOUR_DOMAIN/api/auth/callback/google` to the production OAuth client. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the environment.
+2. Register a GitHub **OAuth App** in GitHub's developer settings. Set its **Authorization callback URL** to `http://localhost:3000/api/auth/callback/github` for local development. For production create a separate OAuth app with callback `https://YOUR_DOMAIN/api/auth/callback/github`, and provide `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in the environment. GitHub authentication needs a verified email, including `user:email` access for private addresses. Better Auth requests this scope for its built-in GitHub provider; do not add repository or organization permissions to the login-only app.
+3. Ensure `SITE_URL` is the exact base origin (`http://localhost:3000` or your HTTPS production URL). Better Auth uses that origin to construct provider callback URLs. Set production variables in the deployment provider's protected environment settings; do not commit secrets or expose them via `NEXT_PUBLIC_*`. Restart the Next.js server after changing local environment variables.
+
+OAuth is initiated with `authClient.signIn.social` (Google or GitHub) and an internal-only success destination: `/dashboard` for candidates or `/employers` for the employer flow. OAuth errors return to `/auth`, retaining employer context and displaying a safe, actionable error message. Email/password and OAuth accounts share the same authorization boundaries. Neither OAuth provider grants organization membership or administrative privileges. GitHub explicitly requests only `user:email` and the provider's standard identity scope; repository permissions are not required.
+
+Provider access and refresh tokens are encrypted at rest with Better Auth's `account.encryptOAuthTokens` setting, using the configured `AUTH_SECRET`. Do not rotate or lose that secret without a supported key-rotation plan. If Google sign-in was already used before enabling encryption, inventory existing unencrypted account-token rows and test a reauthentication/migration path before production rollout; encrypted token handling does not retroactively rewrite older rows.
+
+Better Auth may connect a matching verified-email OAuth identity to an existing account under its built-in account-linking policy. Never force-link accounts by email on the client, or treat unverified profile data as a privileged identity. If linking fails, users should sign in with their original method and use an explicit authenticated account-linking flow if available. Existing `requireActor` checks still require email verification for platform actions.
+
+To verify locally: configure test OAuth app credentials, restart `npm run dev`, open `/auth` and `/employers`, confirm both buttons render with the expected styling, sign in with each provider, confirm return paths, and verify email/password fallback. Use the matching deployment callback URLs and dedicated preview/staging OAuth apps as needed.
 
 ## Role boundaries
 

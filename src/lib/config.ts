@@ -19,6 +19,8 @@ const schema = z.object({
   AUTH_SECRET: optional,
   GOOGLE_CLIENT_ID: optional,
   GOOGLE_CLIENT_SECRET: optional,
+  GITHUB_CLIENT_ID: optional,
+  GITHUB_CLIENT_SECRET: optional,
   RESEND_API_KEY: optional,
   EMAIL_TRANSPORT: z.enum(['resend', 'development']).default('resend'),
   EMAIL_FROM: optional,
