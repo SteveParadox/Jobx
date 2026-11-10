@@ -40,13 +40,25 @@ export function AuthForm({
       <p>One account for your search, applications and employer teams.</p>
       {!['forgot', 'reset'].includes(mode) && (
         <div className="auth-tabs" role="tablist" aria-label="Account access">
-          <button role="tab" aria-selected={mode === 'login'} onClick={() => setMode('login')}>
+          <button
+            role="tab"
+            aria-selected={mode === 'login'}
+            onClick={() => {
+              setMode('login');
+              setMessage('');
+              setError(false);
+            }}
+          >
             Sign in
           </button>
           <button
             role="tab"
             aria-selected={mode === 'register'}
-            onClick={() => setMode('register')}
+            onClick={() => {
+              setMode('register');
+              setMessage('');
+              setError(false);
+            }}
           >
             Create account
           </button>
