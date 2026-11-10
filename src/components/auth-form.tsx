@@ -2,7 +2,7 @@
 import { authClient } from '@/lib/auth-client';
 import { authErrorMessage } from '@/lib/auth-error-message';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { SocialSignIn } from './social-sign-in';
 import { Button, Notice } from './ui';
@@ -13,7 +13,6 @@ export function AuthForm({
   googleEnabled?: boolean;
   githubEnabled?: boolean;
 }) {
-  const router = useRouter();
   const params = useSearchParams();
   const token = params.get('token') ?? undefined;
   const employerFlow = params.get('next') === '/employers';
@@ -95,9 +94,8 @@ export function AuthForm({
                 callbackURL: destination,
               });
               if (r.error) throw new Error(r.error.message);
-              // Discard any anonymous /dashboard payload prefetched before sign-in.
-              router.refresh();
-              router.push(destination);
+              // A document navigation cannot reuse an anonymous, prefetched route payload.
+              window.location.assign(destination);
             } else if (mode === 'forgot') {
               const r = await authClient.requestPasswordReset({ email, redirectTo: '/auth' });
               if (r.error) throw new Error(r.error.message);
