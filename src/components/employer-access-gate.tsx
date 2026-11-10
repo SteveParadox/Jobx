@@ -1,6 +1,13 @@
 'use client';
 
-import { ArrowRight, BriefcaseBusiness, Check, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  ArrowRight,
+  BriefcaseBusiness,
+  Check,
+  LockKeyhole,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 import Link from 'next/link';
 import styles from './employer-access-gate.module.css';
 
@@ -93,7 +100,11 @@ export function EmployerAccessGate({
           </div>
         </div>
 
-        <aside className={styles.side} aria-label="How employer onboarding works" data-testid="employer-access-side">
+        <aside
+          className={styles.side}
+          aria-label="How employer onboarding works"
+          data-testid="employer-access-side"
+        >
           <div className={styles.orbit} aria-hidden="true" />
           <div className={styles.sideInner}>
             <span className={styles.sideEyebrow}>THE PATH TO YOUR FIRST HIRE</span>
@@ -103,7 +114,9 @@ export function EmployerAccessGate({
             </h2>
             <ol className={styles.steps}>
               <li className={styles.step}>
-                <span className={styles.stepNumber} aria-hidden="true">01</span>
+                <span className={styles.stepNumber} aria-hidden="true">
+                  01
+                </span>
                 <div>
                   <strong>Create your account</strong>
                   <p>Verify your email to unlock a secure employer workspace.</p>
@@ -111,7 +124,9 @@ export function EmployerAccessGate({
                 <Check className={styles.stepCheck} size={17} aria-hidden="true" />
               </li>
               <li className={styles.step}>
-                <span className={styles.stepNumber} aria-hidden="true">02</span>
+                <span className={styles.stepNumber} aria-hidden="true">
+                  02
+                </span>
                 <div>
                   <strong>Set up your organization</strong>
                   <p>Add your company details for the verification process.</p>
@@ -119,7 +134,9 @@ export function EmployerAccessGate({
                 <Check className={styles.stepCheck} size={17} aria-hidden="true" />
               </li>
               <li className={styles.step}>
-                <span className={styles.stepNumber} aria-hidden="true">03</span>
+                <span className={styles.stepNumber} aria-hidden="true">
+                  03
+                </span>
                 <div>
                   <strong>Publish your opportunity</strong>
                   <p>Prepare a vacancy and submit it for review.</p>
@@ -148,7 +165,9 @@ export function EmployerAccessError({ message, onRetry }: RetryProps & { message
         <span className={styles.stateEyebrow}>WORKSPACE UNAVAILABLE</span>
         <h1 id="employer-error-title">We couldn't load your employer workspace.</h1>
         <p>Something interrupted the request for your organization details. Please try again.</p>
-        <p className={styles.errorMessage} role="alert">{message}</p>
+        <p className={styles.errorMessage} role="alert">
+          {message}
+        </p>
         <button className={styles.primaryButton} type="button" onClick={onRetry}>
           <RefreshCw size={16} aria-hidden="true" />
           Try again
