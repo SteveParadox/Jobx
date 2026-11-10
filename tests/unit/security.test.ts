@@ -200,6 +200,41 @@ it('does not trust spoofable x-forwarded-for for request rate keys without a con
   }
 });
 
+it('reconstructs framework-style auth requests without depending on native Request private state', async () => {
+  const { authClientRequest } = await import('../../src/lib/http');
+  const original = new Request('http://localhost:3000/api/auth/sign-in/email?next=%2Femployers', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      'content-type': 'application/json',
+      cookie: 'session=test',
+      'x-careeratlas-auth-client': 'spoofed',
+    },
+    body: '{"email":"fixture@example.com"}',
+  });
+  // A framework wrapper may expose the request API without sharing Undici's
+  // private Request fields. Passing this object into new Request(...) fails.
+  const frameworkRequest = {
+    url: original.url,
+    method: original.method,
+    headers: original.headers,
+    body: original.body,
+    signal: original.signal,
+  } as Request;
+  const forwarded = authClientRequest(frameworkRequest);
+  expect(forwarded.url).toBe(original.url);
+  expect(forwarded.method).toBe('POST');
+  expect(forwarded.headers.get('content-type')).toBe('application/json');
+  expect(forwarded.headers.get('origin')).toBe('http://localhost:3000');
+  expect(forwarded.headers.get('cookie')).toBe('session=test');
+  expect(forwarded.headers.get('x-careeratlas-auth-client')).toBe('0.0.0.0');
+  expect(await forwarded.text()).toBe('{"email":"fixture@example.com"}');
+
+  const get = authClientRequest(new Request('http://localhost:3000/api/auth/get-session'));
+  expect(get.method).toBe('GET');
+  expect(get.body).toBeNull();
+});
+
 it('overwrites caller-supplied authentication limiter identities with validated ingress data', async () => {
   const { authClientRequest } = await import('../../src/lib/http');
   const original = process.env.TRUSTED_PROXY_IP_HEADER;
