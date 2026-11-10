@@ -130,7 +130,8 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     }
     if (method === 'POST' && path === 'unsubscribe') {
       const data = await body(req, z.object({ token: z.string().min(20).max(200) }));
-      await unsubscribe(data.token);
+      if (!(await unsubscribe(data.token)))
+        throw new AppError(404, 'This unsubscribe link is invalid or no longer available.');
       return { message: 'This alert is disabled.' };
     }
     if (method === 'POST' && path === 'search-history') {
