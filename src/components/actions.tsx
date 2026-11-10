@@ -3,6 +3,16 @@ import { ArrowUpRight, Bell, Bookmark, Flag } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Field, Notice } from './ui';
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export async function api(path: string, method = 'GET', data?: unknown) {
   const response = await fetch('/api/platform/' + path, {
     method,
@@ -17,8 +27,9 @@ export async function api(path: string, method = 'GET', data?: unknown) {
           `${field}: ${Array.isArray(errors) ? errors.join(', ') : String(errors)}`,
       )
       .join('; ');
-    throw new Error(
+    throw new ApiError(
       (result.error ?? 'The request could not be completed') + (fields ? '. ' + fields : ''),
+      response.status,
     );
   }
   return result;
