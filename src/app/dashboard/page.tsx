@@ -2,6 +2,7 @@ import { CandidateWorkspace } from '@/components/candidate-workspace';
 import { metadata } from '@/domain/seo';
 import { currentActor } from '@/lib/auth';
 import { redirect } from 'next/navigation';
+export const dynamic = 'force-dynamic';
 export const generateMetadata = () =>
   metadata(
     'Your career workspace',
