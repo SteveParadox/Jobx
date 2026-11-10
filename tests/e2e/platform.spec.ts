@@ -31,6 +31,47 @@ test('server-rendered public details include the real fixture description and ca
   expect(html).not.toContain('"@type":"JobPosting"');
   expect(response.headers()['x-robots-tag']).toContain('noindex');
 });
+test('unknown pages return HTTP 404 rather than a streamed 200', async ({ request }) => {
+  for (const url of ['/does-not-exist-observer-check', '/jobs/nonexistent-observer-landing']) {
+    const response = await request.get(url);
+    expect(response.status(), url).toBe(404);
+    expect(await response.text()).toContain('This page has moved');
+  }
+});
+
+test('anonymous dashboard visitors are redirected before private data is requested', async ({
+  page,
+}) => {
+  const dashboardRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/platform/dashboard')
+      dashboardRequests.push(request.url());
+  });
+  await page.goto('/dashboard');
+  await expect(page).toHaveURL(/\\/auth\\?next=%2Fdashboard/);
+  await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
+  expect(dashboardRequests).toHaveLength(0);
+});
+
+test('invalid unsubscribe tokens never report success', async ({ request }) => {
+  const response = await request.post('/api/platform/unsubscribe', {
+    headers: { Origin: new URL(process.env.E2E_BASE_URL ?? 'http://localhost:3000').origin },
+    data: { token: 'forged-not-a-valid-alert-token-1234567890' },
+  });
+  expect(response.status()).toBe(404);
+  expect((await response.json()).error).toContain('invalid');
+});
+
+test('bad search query strings show a helpful message rather than raw Zod issues', async ({
+  page,
+}) => {
+  await page.goto('/jobs?country=THIS_IS_NOT_A_COUNTRY&sort=invalid');
+  await expect(
+    page.getByText('Some search filters are invalid. Check the selected values and try again.'),
+  ).toBeVisible();
+  await expect(page.getByText(/Invalid input|Invalid option|expected string/)).toHaveCount(0);
+});
+
 test('visitor searches, paginates and opens a job', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Job title, company or skill').fill('Demo');
@@ -393,12 +434,21 @@ test('registration verifies through the development inbox and supports password 
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Check your email');
+  await expect(page.getByRole('status')).toContainText('If this address is new');
   const { rows } = await pool.query(
     'select html from development_emails where recipient=$1 order by created_at desc limit 1',
     [email],
   );
   const link = rows[0].html.match(/href="([^"]+)"/)[1].replaceAll('&amp;', '&');
+  // Better Auth deliberately returns a synthetic 200 for a duplicate signup.
+  // The UI must stay truthful, and a second verification email is not sent.
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Already registered?');
+  const duplicateEmails = await pool.query(
+    'select count(*)::integer as count from development_emails where recipient=$1',
+    [email],
+  );
+  expect(duplicateEmails.rows[0].count).toBe(1);
   await page.goto(link);
   await page.goto('/auth');
   await page.getByRole('button', { name: 'Forgot password?' }).click();
