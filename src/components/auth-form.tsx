@@ -8,8 +8,10 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get('token') ?? undefined;
+  const employerFlow = params.get('next') === '/employers';
+  const destination = employerFlow ? '/employers' : '/dashboard';
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(
-    token ? 'reset' : 'login',
+    token ? 'reset' : params.get('mode') === 'register' ? 'register' : 'login',
   );
   const [message, setMessage] = useState(
     params.get('error') ? 'The link is invalid or expired. Request a new one.' : '',
@@ -18,7 +20,9 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
   const [busy, setBusy] = useState(false);
   return (
     <div className="auth-card">
-      <div className="eyebrow">YOUR CAREER WORKSPACE</div>
+      <div className="eyebrow">
+        {employerFlow ? 'EMPLOYER ACCOUNT ACCESS' : 'YOUR CAREER WORKSPACE'}
+      </div>
       <h1>
         {mode === 'reset'
           ? 'Choose a new password'
@@ -57,7 +61,7 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
                 email,
                 password,
                 name: String(d.get('name')),
-                callbackURL: '/auth',
+                callbackURL: employerFlow ? '/auth?next=%2Femployers' : '/auth',
               });
               if (r.error) throw new Error(r.error.message);
               setMessage('Check your email to verify your account, then sign in.');
@@ -65,10 +69,10 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
               const r = await authClient.signIn.email({
                 email,
                 password,
-                callbackURL: '/dashboard',
+                callbackURL: destination,
               });
               if (r.error) throw new Error(r.error.message);
-              router.push('/dashboard');
+              router.push(destination);
             } else if (mode === 'forgot') {
               const r = await authClient.requestPasswordReset({ email, redirectTo: '/auth' });
               if (r.error) throw new Error(r.error.message);
@@ -166,7 +170,7 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
           onClick={async () => {
             const r = await authClient.signIn.social({
               provider: 'google',
-              callbackURL: '/dashboard',
+              callbackURL: destination,
             });
             if (r.error) {
               setError(true);
