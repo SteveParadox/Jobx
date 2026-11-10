@@ -26,6 +26,8 @@ function createAuth() {
       },
     }),
     trustedOrigins: [brand.url],
+    // Protect provider access/refresh tokens stored in auth_accounts at rest.
+    account: { encryptOAuthTokens: true },
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
