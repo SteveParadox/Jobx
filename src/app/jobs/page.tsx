@@ -73,19 +73,20 @@ export async function Results({
               Some search filters are invalid. Check the selected values and try again.
             </Notice>
           )}
-          {filters && (result.jobs.length ? (
-            <div className="job-list">
-              {result.jobs.map((job) => (
-                <JobCard key={job.id} job={job} />
-              ))}
-            </div>
-          ) : (
-            <Empty title="A good search starts with possibilities">
-              {env.DATABASE_URL
-                ? 'No active vacancies match these criteria. Broaden your filters or create an alert for future openings.'
-                : 'Authorized inventory has not been connected yet. No demo roles are shown as live opportunities.'}
-            </Empty>
-          ))}
+          {filters &&
+            (result.jobs.length ? (
+              <div className="job-list">
+                {result.jobs.map((job) => (
+                  <JobCard key={job.id} job={job} />
+                ))}
+              </div>
+            ) : (
+              <Empty title="A good search starts with possibilities">
+                {env.DATABASE_URL
+                  ? 'No active vacancies match these criteria. Broaden your filters or create an alert for future openings.'
+                  : 'Authorized inventory has not been connected yet. No demo roles are shown as live opportunities.'}
+              </Empty>
+            ))}
           {filters && result.total > result.pageSize && (
             <nav className="pagination" aria-label="Search pagination">
               {result.page > 1 && (
