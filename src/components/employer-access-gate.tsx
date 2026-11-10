@@ -91,12 +91,14 @@ export function EmployerAccessGate({
                 </>
               )}
             </div>
-            <SocialSignIn
-              googleEnabled={googleEnabled}
-              githubEnabled={githubEnabled}
-              callbackURL="/employers"
-              errorCallbackURL="/auth?next=%2Femployers"
-            />
+            {!verificationRequired && (
+              <SocialSignIn
+                googleEnabled={googleEnabled}
+                githubEnabled={githubEnabled}
+                callbackURL="/employers"
+                errorCallbackURL="/auth?next=%2Femployers"
+              />
+            )}
           </div>
 
           <div className={styles.assurance}>
