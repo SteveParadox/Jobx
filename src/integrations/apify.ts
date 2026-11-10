@@ -12,14 +12,14 @@ import type { FeedJob } from './sources/contracts';
 import { normalizedRecord } from './sources/normalize';
 countries.registerLocale(en);
 const DEFAULT_ACTOR_ID = 'fantastic-jobs~career-site-job-listing-api';
+// A default sync must not silently discard industries or countries. Operators may
+// set actor-specific filters explicitly via APIFY_INPUT and approved source scope.
 export const defaultApifyInput = {
   timeRange: '24h',
+  // Keep the default actor request inexpensive; broaden only by explicit configuration.
   limit: 20,
   descriptionType: 'html',
   includeCompanyDetails: true,
-  removeAgency: true,
-  locationSearch: ['Nigeria'],
-  titleSearch: ['Engineer', 'Developer', 'Designer', 'Analyst', 'Manager'],
 };
 export type ApifyImportOptions = {
   token?: string;

@@ -12,6 +12,7 @@ export function Header() {
         </Link>
         <nav aria-label="Main navigation">
           <Link href="/jobs">Find a job</Link>
+          <Link href="/discover">Search multiple sources</Link>
           <Link href="/companies">Companies</Link>
           <Link href="/resources">Career resources</Link>
         </nav>

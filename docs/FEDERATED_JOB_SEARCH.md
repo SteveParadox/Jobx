@@ -1,0 +1,217 @@
+# Federated job discovery: source integrations and operator controls
+
+This feature is an **industry-neutral, geography-neutral, profile-independent**
+authenticated search surface at `/discover`. It never searches only one profession
+or country by default. It combines Jobx's approved public catalog with optional,
+credentialed partner APIs in a transient result list. It does not deploy ChatGPT
+search infrastructure or claim access to every commercial job board.
+
+## Supported sources
+
+| Source | Integration | Live by default | Publication behavior |
+| --- | --- | --- | --- |
+| Jobx published catalog | PostgreSQL search, canonical source approval | Yes, if a database and approved active jobs exist | Already moderated, eligible public listings only |
+| Himalayas | Public JSON remote-jobs search, **no API key** | Yes, unless disabled; subject to live rate limits | External attributed lead only; keep original Himalayas applicationLink |
+| Greenhouse | Official board endpoint via existing ingestion | No | Employer/source permission, test, enable, moderate |
+| Lever (global + EU) | Official board API via existing ingestion | No | Same approved-source pipeline |
+| Ashby | Public postings API via existing ingestion | No | Listed postings only; approved-source pipeline |
+| Custom JSON, XML, RSS/Atom | Authorized feed adapters | No | Scope, redistribution, field and robots policy |
+| HTML + optional browser | Approved employer career pages | No | Robots, fixed-host transport, browser approval |
+| Licensed JSON adapters | Reviewed trusted code + licensed endpoint | No | Credentials only in secrets and source approval |
+| Apify actor/dataset | Existing approved per-employer actor import | No | `manual_apify` ownership, source leases, refresh, moderation |
+| Adzuna | Credentialed national job search APIs | No | **External lead only**, never auto-imports |
+| USAJOBS | Official federal vacancy search API | No | **External lead only**, never auto-imports |
+| Jooble | Country-specific authorized REST API | No | **External lead only**, never auto-imports |
+
+There is no blanket technical or legal integration for all job sites.
+LinkedIn, Indeed, other closed boards, private ATS feeds, and unlicensed provider
+data are not crawled through unauthorized methods. Add them only through a
+provider-permitted API/partnership or an employer-authorized feed. Remotive's free
+API has special limits on third-party submissions, attribution and signup gates;
+do not connect it as a generic bulk publishing source without reviewing its terms.
+
+## Use
+
+1. Sign in, navigate to `/discover` and enter **any** job title or keywords.
+2. Optionally enter an external-provider location and select a national API market.
+   When no market is selected, configured Adzuna markets (max two per request),
+   USAJOBS if enabled, and Jooble's configured region can participate.
+3. Choose all or one provider. Remote-only requests use only providers with a
+   confirmed filter: Jobx and USAJOBS. Adzuna and Jooble explicitly report skipped.
+4. Results link directly to the published Jobx detail or the original partner.
+   External leads are marked not independently verified; no visa/work eligibility,
+   compensation, freshness or application outcome is inferred.
+5. For structured catalog filters, saved searches, and opt-in email alerts, use
+   `/jobs` and the existing candidate dashboard instead. External results are
+   *not* automatically persisted into those alerts or the public SEO catalog.
+
+The optional `country` API parameter filters the existing Jobx catalog by
+the listing's country. The `location` text field is passed only to external
+providers; the internal Jobx catalog has separate structured location filters at
+`/jobs`. An API market denotes a provider's national catalog, not a person's
+eligibility to work there.
+
+## Keyless source: Himalayas
+
+Official documentation: https://himalayas.app/docs/remote-jobs-api
+
+- The remote-jobs JSON search API is published for developer and commercial use
+  **without signup or an API key**, subject to its API-specific terms. The provider
+  is enabled by default. Set `FEDERATED_HIMALAYAS_ENABLED=false` to turn it off.
+- Jobx uses the server-side `/jobs/api/search` endpoint, which supports keyword,
+  1-based page and country filtering. An explicitly selected national API market
+  is used as a country filter **only for Himalayas**, since it has no national
+  marketplace. The default is global remote jobs, not any person's location.
+- Filtered results are external leads only, labeled "Himalayas", with a visible
+  provider link. Preserve the `applicationLink` URL provided by Himalayas,
+  not a rewritten employer ATS destination.
+- The free API has a shared and undisclosed public rate limit; Jobx has an
+  80-upstream-request/day safety budget and a six-hour Redis cache keyed by
+  normalized query/country/page. Additional requests may receive 429. A key
+  grants greater quotas but is **not required** for this integration.
+- The API publishes Unix-second timestamps; Jobx normalizes them before date
+  display and expiry checks. Its search endpoint returns up to 20 results per
+  page, which Jobx retains. Provider application links are preserved verbatim,
+  including attribution parameters.
+- The API data is refreshed about daily. Expired jobs are filtered when the
+  upstream provides an expiry date. Listings do not enter the Jobx published
+  catalog, Google Jobs schema, indexing feeds or third-party aggregators.
+- Show listings only on Jobx's own app, keep source credit and backlinks, honor
+  removal/expiry requirements, and do not redistribute the listings to other
+  third-party platforms. The application UI does not claim an individual
+  applicant is legally eligible to work there.
+
+## Provider secrets and enablement
+
+**Other providers below** are server-side and disabled until keys/permissions
+are configured.
+
+### Adzuna
+
+- Obtain your own app ID/key and any required permissions via
+  https://developer.adzuna.com/.
+- Review current display, commercial, attribution and quota terms. The operator
+  must provide the **official** logo and attribution, not an invented brand mark.
+- Set `FEDERATED_ADZUNA_ENABLED=true`,
+  `FEDERATED_ADZUNA_APP_ID`, `FEDERATED_ADZUNA_APP_KEY`,
+  `FEDERATED_ADZUNA_MARKETS=gb,us,ca` (choose authorized market codes), and
+  `FEDERATED_ADZUNA_ATTRIBUTION_LOGO_URL=/images/adzuna-official-logo.png`.
+- **The logo file is not bundled.** Obtain authorized artwork yourself and
+  place it in the application's `public/images/` directory at the configured
+  path. Remote logo URLs are deliberately disallowed; verify the official logo
+  and attribution in a real browser before enabling display. Results include a linked "Jobs by" plus linked official image
+  at no smaller than 116×23 CSS pixels. Never enable with a missing/incorrect logo.
+- National API markets supported by the adapter: us, gb, au, ca, de, fr, nl, be,
+  at, ch, it, es, pl, in, sg, nz, za, br and mx. Other countries do not map to
+  an Adzuna marketplace. No country's market is silently chosen for all users.
+- The service caps automatic multi-market queries at two markets per search,
+  with at most 90 provider requests per day globally. Each market is metered
+  separately. Markets are fetched concurrently, and a partial-coverage status
+  identifies any market failures. This limit is only a defensive application cap,
+  not a promise of entitlement under an Adzuna plan.
+
+### USAJOBS
+
+- Request an API token at https://developer.usajobs.gov/apirequest/index.
+- Set `FEDERATED_USAJOBS_ENABLED=true`, `FEDERATED_USAJOBS_API_KEY`,
+  and `FEDERATED_USAJOBS_EMAIL` to the email registered with the API.
+- Requests use fixed HTTPS `data.usajobs.gov/api/search` with the documented
+  `Authorization-Key` and registered `User-Agent`. Remote-only is supported
+  using `RemoteIndicator=True`. The service restricts daily requests to 300.
+- These are U.S. federal announcements. A vacancy being publicly accessible does
+  *not* mean all users have citizenship or work authorization eligibility.
+
+### Jooble
+
+- Obtain the correct national-domain REST API key at
+  https://jooble.org/api/about (or the local country domain).
+- Set `FEDERATED_JOOBLE_ENABLED=true`, `FEDERATED_JOOBLE_API_KEY`,
+  and `FEDERATED_JOOBLE_REGION` to the region for **that key** (e.g. `ng`,
+  `us`, `uk`). The UK Jooble domain uses `uk.jooble.org`;
+  UI market selection uses `gb`, so the connector translates that match.
+- Jooble requires a location; if one is not supplied the provider reports skipped
+  rather than inventing a default location. Use explicit provider attribution.
+- The free API documentation warns of a 500-request *lifetime* key allowance:
+  a Redis 10/day cap does not replace operator-side total-lifetime accounting.
+  Obtain a commercial plan before scaling.
+
+## Trust and security boundaries
+
+- The route requires an authenticated, email-verified Jobx session, with a
+  per-account cap of ten searches per minute; upstream providers also have distributed, hashed-key
+  global Redis budgets. Redis must be configured in production.
+- No user profile, CV, skills, account identifier, search history, or email is
+  shared with partners. The external request contains the user-entered search
+  keywords and location. USAJOBS gets the *operator's* registered API email.
+- HTTP requests go only to fixed official HTTPS API hosts, with no redirects,
+  eight-second deadlines, strict JSON parsing and 1.8 MB response-body caps.
+  Provider credentials never appear in public API responses or rendered pages.
+- Display links are restricted to source-provider HTTPS domains. Never fetch
+  those returned links from the server or use them as ingestion authority.
+- If a provider fails, returns an invalid JSON envelope, or provides a page
+  containing only records with invalid destination links, its status is reported
+  and other sources still work. Partially successful Adzuna
+  multi-market queries are marked partial. No empty/failing provider is
+  represented as "zero jobs exist".
+- Provider search links preserve upstream attribution and application tracking,
+  not merely a generic normalized URL. The result UI shows each source by name.
+- The free Himalayas API has no city-level filter; when a user enters a city,
+  Jobx identifies the limitation rather than implying the city was applied.
+- API content is ephemeral and is **not indexed, cached in user search history,
+  inserted into Jobx jobs, or automatically re-distributed**. Contract-specific
+  retention and removal requirements must be reviewed before any future storage.
+- Jobx approval, employer verification, source-owner mappings, moderation,
+  revocation, job freshness and SEO gates are unchanged.
+
+## Apify bias removed
+
+The default actor input no longer hardcodes a Nigeria country filter or a
+specific shortlist of professional titles. It retains a bounded 24-hour window
+and a 20-item per-run limit, and operators can supply explicit actor-approved
+search parameters through `APIFY_INPUT`. Verify that the configured actor
+accepts this input shape in staging. The importer still requires a separately
+approved and enabled per-employer `manual_apify` source; it does not auto-approve
+or publish new employer records.
+
+## Verification and rollout
+
+On a clean branch checkout, with Node 22 and isolated test services:
+
+```bash
+npm ci
+npm run format:check
+npm run typecheck
+npm run lint
+npm run test -- tests/unit/federated-providers.test.ts tests/integration/federated-search.test.ts
+npm run test
+npm run build
+```
+
+Then test preview/staging with a permitted test key for **each** provider:
+validate success, 401/403, 429/5xx, timeout, oversized payload, invalid JSON,
+malicious URL, missing attribution, multiple markets, disabled source and user
+session/rate limiting; measure quota consumption and response times. Perform
+browser checks (desktop/mobile) for an accessible form, truthful source labels,
+link security and required brand attribution.
+
+**No API keys, provider licenses, staged acceptance runs, active live sources,
+successfully running GitHub Actions jobs, or completed production deployments
+are claimed by the code alone.** Keep the PR in draft until verification completes.
+
+## Expansion roadmap
+
+- Add provider-level secrets, legal permission records, license expiry and usage
+  counters in PostgreSQL, with global budget monitoring.
+- Use a plugin registry to add additional official/licensed job APIs without
+  modifying the frontend or approval pipeline. Avoid arbitrary user-entered
+  API URLs and unguarded scraping.
+- Build a separate rights-aware background search/discovery queue with
+  scheduled searches, deduplicated per-source identities, provenance, last-seen
+  states, removal/webhook handling and an operator review inbox.
+- Add a distinct private external-lead watchlist only when provider terms permit
+  storage and with consent, retention, export and deletion.
+- Extend search UX with pagination per provider, country-specific market
+  selectors, filters mapped only when supported by each API, resilient caching
+  within license terms and explicit coverage/status explanations.
+- Keep Jobx published catalog independent, so external lead outages or provider
+  license revocation cannot silently corrupt public listings.
