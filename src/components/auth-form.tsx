@@ -95,6 +95,8 @@ export function AuthForm({
                 callbackURL: destination,
               });
               if (r.error) throw new Error(r.error.message);
+              // Discard any anonymous /dashboard payload prefetched before sign-in.
+              router.refresh();
               router.push(destination);
             } else if (mode === 'forgot') {
               const r = await authClient.requestPasswordReset({ email, redirectTo: '/auth' });
