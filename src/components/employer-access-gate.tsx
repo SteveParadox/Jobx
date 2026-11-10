@@ -93,7 +93,7 @@ export function EmployerAccessGate({
           </div>
         </div>
 
-        <aside className={styles.side} aria-label="How employer onboarding works">
+        <aside className={styles.side} aria-label="How employer onboarding works" data-testid="employer-access-side">
           <div className={styles.orbit} aria-hidden="true" />
           <div className={styles.sideInner}>
             <span className={styles.sideEyebrow}>THE PATH TO YOUR FIRST HIRE</span>
