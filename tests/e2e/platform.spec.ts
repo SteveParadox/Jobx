@@ -235,71 +235,59 @@ test('Google and GitHub choices are consistent across employer and account acces
   );
 });
 
-test('configured OAuth buttons initiate the correct login and signup flows', async ({
-  page,
-}) => {
-  const requests: Array<{
-    provider: string;
-    callbackURL: string;
-    errorCallbackURL: string;
-    requestSignUp: boolean;
-  }> = [];
-  await page.route('**/api/auth/sign-in/social', async (route) => {
-    requests.push(route.request().postDataJSON());
-    await route.fulfill({
-      status: 400,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'OAuth test interruption' }),
+for (const providerName of ['Google', 'GitHub'] as const) {
+  test(`${providerName} OAuth starts the correct login and signup flows`, async ({ page }) => {
+    const requests: Array<{
+      provider: string;
+      callbackURL: string;
+      errorCallbackURL: string;
+      requestSignUp: boolean;
+    }> = [];
+    await page.route('**/api/auth/sign-in/social', async (route) => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'OAuth test interruption' }),
+      });
     });
-  });
-  await page.goto('/auth?next=%2Femployers');
-  await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
 
-  const enabledProviders = (
-    await Promise.all(
-      (['Google', 'GitHub'] as const).map(async (name) => ({
-        name,
-        enabled: (await page.getByRole('button', { name: `Continue with ${name}` }).count()) > 0,
-      })),
-    )
-  ).filter((entry) => entry.enabled);
+    await page.goto('/auth?next=%2Femployers');
+    await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
+    const providerButton = page.getByRole('button', { name: `Continue with ${providerName}` });
 
-  // A missing provider must be reported as untested, not silently counted as passing.
-  test.skip(
-    enabledProviders.length === 0,
-    'Configure GOOGLE_CLIENT_ID/SECRET or GITHUB_CLIENT_ID/SECRET in the E2E server.',
-  );
+    // Report each missing provider as skipped, never count it as a passed test.
+    test.skip(
+      (await providerButton.count()) === 0,
+      `${providerName} OAuth credentials not configured in the E2E server.`,
+    );
 
-  for (const { name } of enabledProviders) {
-    await page.getByRole('button', { name: `Continue with ${name}` }).click();
+    await providerButton.click();
     await expect(page.getByRole('alert')).toContainText('OAuth test interruption');
     expect(requests.at(-1)).toMatchObject({
-      provider: name.toLowerCase(),
+      provider: providerName.toLowerCase(),
       callbackURL: '/employers',
       errorCallbackURL: '/auth?next=%2Femployers',
       requestSignUp: false,
     });
-  }
 
-  await page.getByRole('tab', { name: 'Create account' }).click();
-  const providerButton = page.getByRole('button', {
-    name: `Continue with ${enabledProviders[0].name}`,
-  });
-  const requestsBeforeConsent = requests.length;
-  await providerButton.click();
-  await expect(page.getByRole('alert')).toContainText('Please accept the Terms');
-  expect(requests).toHaveLength(requestsBeforeConsent);
+    await page.getByRole('tab', { name: 'Create account' }).click();
+    const requestsBeforeConsent = requests.length;
+    await providerButton.click();
+    await expect(page.getByRole('alert')).toContainText('Please accept the Terms');
+    expect(requests).toHaveLength(requestsBeforeConsent);
 
-  await page.getByRole('checkbox').check();
-  await providerButton.click();
-  await expect(page.getByRole('alert')).toContainText('OAuth test interruption');
-  expect(requests.at(-1)).toMatchObject({
-    provider: enabledProviders[0].name.toLowerCase(),
-    callbackURL: '/employers',
-    errorCallbackURL: '/auth?next=%2Femployers',
-    requestSignUp: true,
+    await page.getByRole('checkbox').check();
+    await providerButton.click();
+    await expect(page.getByRole('alert')).toContainText('OAuth test interruption');
+    expect(requests.at(-1)).toMatchObject({
+      provider: providerName.toLowerCase(),
+      callbackURL: '/employers',
+      errorCallbackURL: '/auth?next=%2Femployers',
+      requestSignUp: true,
+    });
   });
-});
+}
 
 test('employer workspace distinguishes API failures from sign-in requirements', async ({
   page,
