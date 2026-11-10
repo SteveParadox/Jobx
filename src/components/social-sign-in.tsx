@@ -1,7 +1,7 @@
 'use client';
 
 import { authClient } from '@/lib/auth-client';
-import { Github, LoaderCircle } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import styles from './social-sign-in.module.css';
 
@@ -35,6 +35,20 @@ function GoogleMark() {
         fill="#EA4335"
         d="M12 5.87c1.47 0 2.79.5 3.83 1.51L18.71 4.5A9.58 9.58 0 0 0 12 2a10 10 0 0 0-8.96 5.44l3.32 2.58A6 6 0 0 1 12 5.87Z"
       />
+    </svg>
+  );
+}
+
+function GitHubMark() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 0C5.37 0 0 5.373 0 12c0 5.303 3.438 9.8 8.205 11.385.6.112.82-.26.82-.577 0-.285-.01-1.04-.015-2.04-3.338.725-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.757-1.333-1.757-1.09-.745.083-.73.083-.73 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.108-.775.418-1.305.762-1.605-2.665-.303-5.467-1.333-5.467-5.931 0-1.311.469-2.381 1.237-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.535 11.535 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.12 3.176.77.84 1.235 1.91 1.235 3.221 0 4.61-2.807 5.624-5.48 5.921.43.372.823 1.102.823 2.222 0 1.605-.014 2.898-.014 3.293 0 .32.216.694.825.576C20.565 21.796 24 17.299 24 12c0-6.627-5.373-12-12-12z" />
     </svg>
   );
 }
@@ -112,7 +126,7 @@ export function SocialSignIn({
             {pending === 'github' ? (
               <LoaderCircle className={styles.spinner} size={19} aria-hidden="true" />
             ) : (
-              <Github size={20} aria-hidden="true" />
+              <GitHubMark />
             )}
             <span>GitHub</span>
           </button>
