@@ -53,12 +53,27 @@ function createAuth() {
         );
       },
     },
+    // An OAuth sign-in must not silently create a new account. New users first
+    // select Create account and acknowledge the site's terms in the UI.
     socialProviders: {
       ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-        ? { google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } }
+        ? {
+            google: {
+              clientId: env.GOOGLE_CLIENT_ID,
+              clientSecret: env.GOOGLE_CLIENT_SECRET,
+              disableImplicitSignUp: true,
+            },
+          }
         : {}),
       ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
-        ? { github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET } }
+        ? {
+            github: {
+              clientId: env.GITHUB_CLIENT_ID,
+              clientSecret: env.GITHUB_CLIENT_SECRET,
+              scope: ['user:email'],
+              disableImplicitSignUp: true,
+            },
+          }
         : {}),
     },
     user: { deleteUser: { enabled: false } },
