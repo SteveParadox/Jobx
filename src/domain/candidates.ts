@@ -364,10 +364,11 @@ export function matchingCandidateSkills(
   );
 }
 export async function recommendations(actor: Actor) {
-  const [p, prefs] = await Promise.all([
+  const [profiles, prefs] = await Promise.all([
     getDb().select().from(s.profiles).where(eq(s.profiles.userId, actor.id)),
     getDb().select().from(s.candidatePreferences).where(eq(s.candidatePreferences.userId, actor.id)),
   ]);
+  const p = profiles[0];
   if (!prefs[0]?.personalizationEnabled)
     return { jobs: [], explanation: 'Enable optional personalized matching under Privacy to use profile skills.' };
   if (!p?.skills.length)
