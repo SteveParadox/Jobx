@@ -76,7 +76,10 @@ export async function body<T extends z.ZodType>(req: Request, schema: T): Promis
   }
   return schema.parse(data);
 }
-export async function endpoint(fn: () => Promise<unknown>) {
+export async function endpoint(
+  fn: () => Promise<unknown>,
+  onUnexpectedError?: (error: unknown) => void,
+) {
   try {
     const result = await fn();
     if (result instanceof Response) return result;
@@ -99,6 +102,13 @@ export async function endpoint(fn: () => Promise<unknown>) {
         { error: 'Please check the submitted fields', issues: error.flatten() },
         { status: 400 },
       );
+    if (onUnexpectedError) {
+      try {
+        onUnexpectedError(error);
+      } catch {
+        // Diagnostics must never replace the original API error response.
+      }
+    }
     log('request_failed', { error: error instanceof Error ? error.name : 'unknown' });
     return Response.json(
       { error: 'The request could not be completed. Please try again.' },
