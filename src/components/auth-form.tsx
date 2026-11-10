@@ -3,8 +3,15 @@ import { authClient } from '@/lib/auth-client';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { SocialSignIn } from './social-sign-in';
 import { Button, Notice } from './ui';
-export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
+export function AuthForm({
+  googleEnabled = false,
+  githubEnabled = false,
+}: {
+  googleEnabled?: boolean;
+  githubEnabled?: boolean;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get('token') ?? undefined;
@@ -163,23 +170,13 @@ export function AuthForm({ googleEnabled = false }: { googleEnabled?: boolean })
           Back to sign in
         </button>
       )}
-      {googleEnabled && mode === 'login' && (
-        <Button
-          variant="secondary"
-          style={{ width: '100%', marginTop: 15 }}
-          onClick={async () => {
-            const r = await authClient.signIn.social({
-              provider: 'google',
-              callbackURL: destination,
-            });
-            if (r.error) {
-              setError(true);
-              setMessage(r.error.message ?? 'Google sign in failed');
-            }
-          }}
-        >
-          Continue with Google
-        </Button>
+      {(mode === 'login' || mode === 'register') && (
+        <SocialSignIn
+          googleEnabled={googleEnabled}
+          githubEnabled={githubEnabled}
+          callbackURL={destination}
+          errorCallbackURL={employerFlow ? '/auth?next=%2Femployers' : '/auth'}
+        />
       )}
     </div>
   );
