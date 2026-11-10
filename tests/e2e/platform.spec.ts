@@ -169,13 +169,30 @@ test('candidate controls search history, edits alerts and saved searches, and ma
   await notification.getByRole('button', { name: 'Mark read', exact: true }).click();
   await expect(notification.getByText('Read', { exact: true })).toBeVisible();
 });
-test('employer sign-in gate offers a clear entry and returns users to the workspace', async ({
+test('employer sign-in gate offers a styled entry and returns users to the workspace', async ({
   page,
+  isMobile,
 }) => {
   await page.goto('/employers');
   await expect(
     page.getByRole('heading', { name: 'Your next great hire starts here.' }),
   ).toBeVisible();
+
+  // Text-only assertions miss unloaded stylesheets. Verify the CSS module actually applies.
+  const layout = page.getByTestId('employer-access-layout');
+  await expect(layout).toHaveCSS('display', 'grid');
+  await expect(page.getByTestId('employer-access-primary')).toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  );
+  await expect(page.getByTestId('employer-access-side')).toHaveCSS(
+    'background-color',
+    'rgb(21, 61, 47)',
+  );
+  const columnCount = await layout.evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/).length,
+  );
+  expect(columnCount).toBe(isMobile ? 1 : 2);
   await expect(page.getByRole('link', { name: 'Sign in to continue' })).toHaveAttribute(
     'href',
     '/auth?next=%2Femployers',
