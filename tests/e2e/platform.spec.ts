@@ -329,6 +329,8 @@ test('unverified employers see email verification instead of a generic sign-in p
   ).toBeVisible();
   await expect(page.getByRole('button', { name: "I've verified my email" })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in to continue' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toHaveCount(0);
 });
 
 test('employer drafts a job and submits it for approval', async ({ page }) => {
