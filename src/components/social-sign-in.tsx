@@ -12,6 +12,8 @@ type SocialSignInProps = {
   githubEnabled: boolean;
   callbackURL: '/dashboard' | '/employers';
   errorCallbackURL: '/auth' | '/auth?next=%2Femployers';
+  allowSignUp?: boolean;
+  termsAccepted?: boolean;
 };
 
 function GoogleMark() {
@@ -30,6 +32,8 @@ export function SocialSignIn({
   githubEnabled,
   callbackURL,
   errorCallbackURL,
+  allowSignUp = false,
+  termsAccepted = false,
 }: SocialSignInProps) {
   const [pending, setPending] = useState<SocialProvider | null>(null);
   const [error, setError] = useState('');
@@ -38,6 +42,10 @@ export function SocialSignIn({
 
   async function signIn(provider: SocialProvider) {
     if (pending) return;
+    if (allowSignUp && !termsAccepted) {
+      setError('Please accept the Terms and read the Privacy notice before creating an account.');
+      return;
+    }
     setPending(provider);
     setError('');
     try {
@@ -45,6 +53,7 @@ export function SocialSignIn({
         provider,
         callbackURL,
         errorCallbackURL,
+        requestSignUp: allowSignUp,
       });
       if (result.error) throw new Error(result.error.message || 'Unable to start sign-in.');
     } catch (cause) {
