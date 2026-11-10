@@ -1,5 +1,6 @@
 'use client';
 import { authClient } from '@/lib/auth-client';
+import { authErrorMessage } from '@/lib/auth-error-message';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -20,10 +21,8 @@ export function AuthForm({
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(
     token ? 'reset' : params.get('mode') === 'register' ? 'register' : 'login',
   );
-  const [message, setMessage] = useState(
-    params.get('error') ? 'The link is invalid or expired. Request a new one.' : '',
-  );
-  const [error, setError] = useState(false);
+  const [message, setMessage] = useState(authErrorMessage(params.get('error')));
+  const [error, setError] = useState(Boolean(params.get('error')));
   const [busy, setBusy] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   return (
