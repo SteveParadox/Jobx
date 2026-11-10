@@ -67,7 +67,9 @@ export async function Results({
             <SaveSearch filters={clean} />
           </div>
           {!parsed.success && (
-            <Notice error>{parsed.error.issues.map((i) => i.message).join('. ')}</Notice>
+            <Notice error>
+              Some search filters are invalid. Check the selected values and try again.
+            </Notice>
           )}
           {result.jobs.length ? (
             <div className="job-list">
