@@ -169,6 +169,49 @@ test('candidate controls search history, edits alerts and saved searches, and ma
   await notification.getByRole('button', { name: 'Mark read', exact: true }).click();
   await expect(notification.getByText('Read', { exact: true })).toBeVisible();
 });
+test('employer sign-in gate offers a clear entry and returns users to the workspace', async ({
+  page,
+}) => {
+  await page.goto('/employers');
+  await expect(
+    page.getByRole('heading', { name: 'Your next great hire starts here.' }),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in to continue' })).toHaveAttribute(
+    'href',
+    '/auth?next=%2Femployers',
+  );
+  await page.getByRole('link', { name: 'Create an account' }).click();
+  await expect(page).toHaveURL(/\/auth\?mode=register&next=%2Femployers/);
+  await expect(page.getByRole('tab', { name: 'Create account' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+test('employer workspace distinguishes API failures from sign-in requirements', async ({
+  page,
+}) => {
+  let attempts = 0;
+  await page.route('**/api/platform/employers', async (route) => {
+    attempts += 1;
+    await route.fulfill({
+      status: attempts === 1 ? 503 : 401,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: attempts === 1 ? 'Service temporarily unavailable' : 'Please sign in',
+      }),
+    });
+  });
+  await page.goto('/employers');
+  await expect(
+    page.getByRole('heading', { name: "We couldn't load your employer workspace." }),
+  ).toBeVisible();
+  await expect(page.getByText('Service temporarily unavailable')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in to continue' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('link', { name: 'Sign in to continue' })).toBeVisible();
+});
+
 test('employer drafts a job and submits it for approval', async ({ page }) => {
   await signIn(page, 'employer@example.invalid');
   await page.goto('/employers');
