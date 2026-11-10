@@ -410,6 +410,12 @@ describe('candidate workflows', () => {
     });
     expect(await unsubscribe(alert.unsubscribeToken)).toBe(true);
     expect((await ctx.db.select().from(s.alerts))[0].enabled).toBe(false);
+    // Replaying a legitimate link remains idempotent, but forged links fail.
+    expect(await unsubscribe(alert.unsubscribeToken)).toBe(true);
+    expect(await unsubscribe('forged-unsubscribe-token')).toBe(false);
+    const altered = alert.unsubscribeToken.slice(0, -1) +
+      (alert.unsubscribeToken.endsWith('A') ? 'B' : 'A');
+    expect(await unsubscribe(altered)).toBe(false);
   });
   it('generates one digest and one match notification per alert/job', async () => {
     const a = await createAlert(candidate, {
