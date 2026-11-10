@@ -69,7 +69,7 @@ export function EmployerAccessGate({
               {verificationRequired ? (
                 <>
                   <button type="button" className={styles.primaryButton} onClick={onRetry}>
-                    I've verified my email
+                    I&apos;ve verified my email
                     <ArrowRight size={17} aria-hidden="true" />
                   </button>
                   <Link href="/auth?next=%2Femployers" className={styles.secondaryButton}>
@@ -175,7 +175,7 @@ export function EmployerAccessError({ message, onRetry }: RetryProps & { message
           <RefreshCw size={22} aria-hidden="true" />
         </div>
         <span className={styles.stateEyebrow}>WORKSPACE UNAVAILABLE</span>
-        <h1 id="employer-error-title">We couldn't load your employer workspace.</h1>
+        <h1 id="employer-error-title">We couldn&apos;t load your employer workspace.</h1>
         <p>Something interrupted the request for your organization details. Please try again.</p>
         <p className={styles.errorMessage} role="alert">
           {message}
