@@ -48,7 +48,7 @@ test('anonymous dashboard visitors are redirected before private data is request
       dashboardRequests.push(request.url());
   });
   await page.goto('/dashboard');
-  await expect(page).toHaveURL(/\\/auth\\?next=%2Fdashboard/);
+  await expect(page).toHaveURL(/\/auth\?next=%2Fdashboard/);
   await expect(page.getByRole('tab', { name: 'Sign in' })).toBeVisible();
   expect(dashboardRequests).toHaveLength(0);
 });
