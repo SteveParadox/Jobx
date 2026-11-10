@@ -171,6 +171,7 @@ export const alertUpdateSchema = alertSchema
 export const candidatePreferencesSchema = z.object({
   emailAlertsEnabled: z.boolean(),
   searchHistoryEnabled: z.boolean(),
+  personalizationEnabled: z.boolean().optional(),
 });
 export const savedSearchSchema = z.object({
   name: z.string().trim().min(2).max(100),

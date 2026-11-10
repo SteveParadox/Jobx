@@ -85,6 +85,27 @@
       "when": 1794128400000,
       "tag": "0011_remote_eligibility_and_vacancies",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794180000000,
+      "tag": "0012_discovery_observability",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794180001000,
+      "tag": "0013_external_lead_bookmarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794180002000,
+      "tag": "0014_external_provider_discovery",
+      "breakpoints": true
     }
   ]
 }

@@ -35,9 +35,11 @@ import {
   verifyEmployer,
 } from '@/domain/jobs';
 import { searchJobs, suggestions } from '@/domain/search';
+import { listSavedExternalLeads, saveExternalLead, updateExternalLead, removeExternalLead } from '@/domain/external-leads';
 import { federatedSearch } from '@/domain/federated-search';
 import { registerSource, reviewSource, updateSource } from '@/domain/source-management';
 import { runConfiguredSeedDiscovery } from '@/domain/discovery/discovery-service';
+import { reviewExternalDiscoveryLead } from '@/domain/discovery/provider-discovery';
 import { assertReviewedCandidateCurrent } from '@/domain/discovery/review-guard';
 import { acceptInvite, invite, removeMember } from '@/domain/team';
 import { savedSearchSchema } from '@/domain/validation';
@@ -172,8 +174,21 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
     }
     if (method === 'GET' && path === 'federated-search') {
       await rateLimit('federated-search:account:' + actor.id, 10, 60);
-      return federatedSearch(Object.fromEntries(new URL(req.url).searchParams));
+      return federatedSearch(Object.fromEntries(new URL(req.url).searchParams), actor.id);
     }
+    if (method === 'GET' && path === 'external-leads') return listSavedExternalLeads(actor);
+    if (method === 'POST' && path === 'external-leads') {
+      const data = await body(req, z.object({ token: z.string().min(20).max(5000) }));
+      return saveExternalLead(actor, data.token);
+    }
+    if (p[0] === 'external-leads' && p.length === 2 && method === 'PATCH') {
+      const data = await body(req, z.object({
+        status: z.enum(['saved', 'applied', 'interviewing', 'offer', 'rejected', 'closed']),
+      }));
+      return updateExternalLead(actor, uuid(p[1]), data.status);
+    }
+    if (p[0] === 'external-leads' && p.length === 2 && method === 'DELETE')
+      return removeExternalLead(actor, uuid(p[1]));
     if (method === 'GET' && path === 'recommendations') return recommendations(actor);
     if (method === 'GET' && path === 'export')
       return new Response(JSON.stringify(await exportCandidateData(actor), null, 2), {
@@ -214,6 +229,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
         await tx.delete(s.profiles).where(eq(s.profiles.userId, actor.id));
         await tx.delete(s.alerts).where(eq(s.alerts.userId, actor.id));
         await tx.delete(s.savedJobs).where(eq(s.savedJobs.userId, actor.id));
+        await tx.delete(s.externalSavedLeads).where(eq(s.externalSavedLeads.userId, actor.id));
         await tx.delete(s.savedSearches).where(eq(s.savedSearches.userId, actor.id));
         await tx.delete(s.searchHistory).where(eq(s.searchHistory.userId, actor.id));
         await tx.delete(s.candidatePreferences).where(eq(s.candidatePreferences.userId, actor.id));
@@ -463,19 +479,39 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       if (method === 'GET' && path === 'admin/ingestion')
         return { ...(await ingestionOverview()), queue: await queueHealth() };
       if (method === 'GET' && path === 'admin/discovery') {
-        const [candidates, runs] = await Promise.all([
+        const [candidates, runs, seedHealth, recentChanges] = await Promise.all([
           db
             .select()
             .from(s.discoveryCandidates)
             .orderBy(desc(s.discoveryCandidates.lastObservedAt))
             .limit(200),
           db.select().from(s.discoveryRuns).orderBy(desc(s.discoveryRuns.startedAt)).limit(50),
+          db.select().from(s.discoverySeedHealth).orderBy(desc(s.discoverySeedHealth.lastRunAt)).limit(100),
+          db.select().from(s.discoveryCandidateChanges).orderBy(desc(s.discoveryCandidateChanges.observedAt)).limit(100),
         ]);
         return {
           candidates,
           runs,
+          seedHealth,
+          recentChanges,
           configured: Boolean(env.JOB_DISCOVERY_ENABLED && env.JOB_DISCOVERY_SEEDS),
         };
+      }
+      if (method === 'GET' && path === 'admin/external-discovery') {
+        const [leads, runs] = await Promise.all([
+          db.select().from(s.externalDiscoveryLeads)
+            .orderBy(desc(s.externalDiscoveryLeads.lastSeenAt)).limit(150),
+          db.select().from(s.externalDiscoveryRuns)
+            .orderBy(desc(s.externalDiscoveryRuns.startedAt)).limit(30),
+        ]);
+        return { leads, runs, enabled: env.JOB_AUTONOMOUS_PROVIDER_DISCOVERY_ENABLED };
+      }
+      if (method === 'PATCH' && p[1] === 'external-discovery' && p.length === 3) {
+        const data = await body(req, z.object({
+          state: z.enum(['reviewed', 'rejected']),
+          note: z.string().trim().min(10).max(2000),
+        }));
+        return reviewExternalDiscoveryLead(actor, p[2], data.state, data.note);
       }
       if (method === 'POST' && path === 'admin/discovery/run') {
         const data = await body(req, z.object({ seeds: z.string().max(10000).optional() }));

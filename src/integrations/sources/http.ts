@@ -203,7 +203,10 @@ export function createSourceContext(
       const key = process.env[config.credentialEnv];
       if (!key || /[\r\n]/.test(key))
         throw new SourceError('CREDENTIALS', 'Configured source credential is unavailable');
-      headers.Authorization = 'Bearer ' + key;
+      if (config.credentialMode === 'recruitee_careers')
+        headers['X-Careers-Sites-Token'] = key;
+      else
+        headers.Authorization = 'Bearer ' + key;
     }
     try {
       const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);

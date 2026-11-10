@@ -32,7 +32,24 @@ type Run = {
   startedAt: string;
   finishedAt: string | null;
 };
-type Snapshot = { candidates: Candidate[]; runs: Run[]; configured: boolean };
+type SeedHealth = {
+  seedKey: string; hostname: string; status: string;
+  lastRunAt: string | null; lastSuccessAt: string | null;
+  consecutiveFailures: number; candidatesLastRun: number; lastError: string | null;
+};
+type Change = {
+  id: string; candidateId: string; changeType: string;
+  priorProvider: string | null; provider: string | null;
+  priorBoardToken: string | null; boardToken: string | null;
+  observedAt: string;
+};
+type Snapshot = {
+  candidates: Candidate[];
+  runs: Run[];
+  seedHealth: SeedHealth[];
+  recentChanges: Change[];
+  configured: boolean;
+};
 
 const when = (value?: string | null) => (value ? new Date(value).toLocaleString() : 'Not recorded');
 
@@ -200,6 +217,35 @@ export function DiscoveryWorkspace() {
         </form>
       </section>
 
+      <section className="panel">
+        <h2>Seed health</h2>
+        <p>Every configured employer/ATS seed is tracked independently. A failed seed cannot approve a source.</p>
+        {!snapshot?.seedHealth.length && <p>No seed health observations yet.</p>}
+        {snapshot?.seedHealth.map((entry) => (
+          <div className="workspace-row" key={entry.seedKey}>
+            <div>
+              <h3>{entry.hostname} · {entry.status}</h3>
+              <p>Last run: {when(entry.lastRunAt)} · Last success: {when(entry.lastSuccessAt)}</p>
+              <p>Found last run: {entry.candidatesLastRun} · Consecutive failures: {entry.consecutiveFailures}</p>
+              {entry.lastError && <p>{entry.lastError}</p>}
+            </div>
+          </div>
+        ))}
+      </section>
+      <section className="panel">
+        <h2>Source identity changes</h2>
+        <p>Changes to a previously reviewed board identity reopen it for permission review.</p>
+        {!snapshot?.recentChanges.length && <p>No identity changes recorded.</p>}
+        {snapshot?.recentChanges.filter((x) => x.changeType === 'identity_changed').map((change) => (
+          <div className="workspace-row" key={change.id}>
+            <div>
+              <h3>{change.priorProvider ?? 'Unknown'} / {change.priorBoardToken ?? '—'}
+                {' → '}{change.provider ?? 'Unknown'} / {change.boardToken ?? '—'}</h3>
+              <p>Observed {when(change.observedAt)} · Candidate {change.candidateId}</p>
+            </div>
+          </div>
+        ))}
+      </section>
       <section className="panel">
         <h2>Candidate review queue</h2>
         {!snapshot?.candidates.length && (

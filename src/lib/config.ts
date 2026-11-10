@@ -56,6 +56,11 @@ const schema = z.object({
   FEDERATED_JOOBLE_ENABLED: bool,
   FEDERATED_JOOBLE_API_KEY: optional,
   FEDERATED_JOOBLE_REGION: optional,
+  JOB_EXTERNAL_SAVE_PROVIDERS: optional,
+  // Operators alone configure scheduled provider searches, disabled by default.
+  JOB_AUTONOMOUS_PROVIDER_DISCOVERY_ENABLED: bool,
+  JOB_AUTONOMOUS_PROVIDER_DISCOVERY_SEEDS: optional,
+  JOB_AUTONOMOUS_PROVIDER_DISCOVERY_INTERVAL_HOURS: z.coerce.number().int().min(6).max(168).default(24),
 
   // Apify integration
   APIFY_TOKEN: optional,

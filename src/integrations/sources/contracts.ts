@@ -48,6 +48,8 @@ export const sourceConfigSchema = z
       .string()
       .regex(/^JOB_SOURCE_TOKEN_[A-Z0-9_]{1,80}$/)
       .optional(),
+    // Fixed, audited header choices. No arbitrary admin-supplied header names.
+    credentialMode: z.enum(['bearer', 'recruitee_careers']).default('bearer'),
     recordsPath: z.string().max(200).default('jobs'),
     nextPath: z.string().max(200).optional(),
     completePath: z.string().max(200).optional(),
@@ -176,7 +178,7 @@ export interface SourceAdapter {
   discover: (source: Pick<Source, 'boardToken' | 'endpointUrl'>) => string;
   fetch: (context: SourceContext) => Promise<Snapshot>;
 }
-export const ATS_PROVIDERS = ['greenhouse', 'lever', 'lever_eu', 'ashby'] as const;
+export const ATS_PROVIDERS = ['greenhouse', 'lever', 'lever_eu', 'ashby', 'smartrecruiters'] as const;
 export const NETWORK_PROVIDERS = [
   ...ATS_PROVIDERS,
   'authorized_json',

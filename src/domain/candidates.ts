@@ -8,6 +8,7 @@ import { alertToken } from '@/lib/unsubscribe';
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { audit } from './jobs';
 import { getPublicJob, searchJobs } from './search';
+import { providerStorageAllowed } from './external-lead-tokens';
 import { historyFilters } from './search-state';
 import { active } from './seo';
 import {
@@ -20,6 +21,7 @@ import {
 } from './validation';
 export const defaultCandidatePreferences = {
   emailAlertsEnabled: true,
+  personalizationEnabled: false,
   searchHistoryEnabled: false,
   historyConsentedAt: null as Date | null,
 };
@@ -47,6 +49,7 @@ export async function updateCandidatePreferences(actor: Actor, input: unknown) {
       .where(eq(s.candidatePreferences.userId, actor.id));
     const values = {
       ...data,
+      personalizationEnabled: data.personalizationEnabled ?? old?.personalizationEnabled ?? false,
       historyConsentedAt: data.searchHistoryEnabled
         ? (old?.historyConsentedAt ?? new Date())
         : null,
@@ -343,18 +346,56 @@ export async function saveSearch(actor: Actor, name: string, filters: unknown, i
       .returning()
   )[0];
 }
+export function matchingCandidateSkills(
+  job: { title: string; skills: string[] },
+  candidateSkills: string[],
+): string[] {
+  const normalize = (input: string) => input.toLowerCase().trim()
+    .replace(/[^a-z0-9+#.]+/g, ' ').replace(/\s+/g, ' ');
+  const title = ' ' + normalize(job.title) + ' ';
+  const listed = new Set(job.skills.map(normalize));
+  const unique = new Map<string, string>();
+  for (const skill of candidateSkills) {
+    const key = normalize(skill);
+    if (key && !unique.has(key)) unique.set(key, skill.trim());
+  }
+  return [...unique.values()].filter(skill =>
+    listed.has(normalize(skill)) || title.includes(' ' + normalize(skill) + ' ')
+  );
+}
 export async function recommendations(actor: Actor) {
-  const [p] = await getDb().select().from(s.profiles).where(eq(s.profiles.userId, actor.id));
+  const [p, prefs] = await Promise.all([
+    getDb().select().from(s.profiles).where(eq(s.profiles.userId, actor.id)),
+    getDb().select().from(s.candidatePreferences).where(eq(s.candidatePreferences.userId, actor.id)),
+  ]);
+  if (!prefs[0]?.personalizationEnabled)
+    return { jobs: [], explanation: 'Enable optional personalized matching under Privacy to use profile skills.' };
   if (!p?.skills.length)
     return { jobs: [], explanation: 'Add your skills to see relevant openings.' };
+  const terms: string[] = [];
+  for (const skill of p.skills) {
+    const value = skill.trim();
+    if (!value || terms.includes(value)) continue;
+    if ([...terms, value].join(' OR ').length > 160) continue;
+    terms.push(value);
+    if (terms.length >= 5) break;
+  }
+  if (!terms.length) return { jobs: [], explanation: 'Add valid skills to see relevant openings.' };
+  const results = await searchJobs({ q: terms.join(' OR ') });
+  const matches = results.jobs.map(job => ({
+    ...job,
+    matchedSkills: matchingCandidateSkills(job, p.skills),
+  })).sort((a, b) => b.matchedSkills.length - a.matchedSkills.length);
   return {
-    ...(await searchJobs({ q: p.skills.slice(0, 5).join(' OR ') })),
-    explanation: 'Matches use only the skills you added; review the actual qualifications.',
+    ...results,
+    jobs: matches,
+    explanation:
+      'Suggested published jobs use a transparent skill-overlap heuristic on the current results page. They are not eligibility predictions or AI confidence scores.',
   };
 }
 export async function exportCandidateData(actor: Actor) {
   const data = await candidateDashboard(actor);
-  const [events, deliveries] = await Promise.all([
+  const [events, deliveries, externalLeads] = await Promise.all([
     getDb()
       .select({
         id: s.applicationEvents.id,
@@ -372,6 +413,7 @@ export async function exportCandidateData(actor: Actor) {
       })
       .from(s.deliveries)
       .where(eq(s.deliveries.userId, actor.id)),
+    getDb().select().from(s.externalSavedLeads).where(eq(s.externalSavedLeads.userId, actor.id)),
   ]);
   return {
     exportedAt: new Date().toISOString(),
@@ -379,6 +421,7 @@ export async function exportCandidateData(actor: Actor) {
     ...data,
     events,
     deliveries,
+    externalLeads: externalLeads.filter((row) => providerStorageAllowed(row.provider)),
   };
 }
 export async function unsubscribe(secret: string) {

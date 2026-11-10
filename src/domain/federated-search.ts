@@ -13,6 +13,7 @@ import {
 } from '@/integrations/federated-providers';
 import { env } from '@/lib/config';
 import { getRedis, rateLimit } from '@/lib/http';
+import { sealExternalLead } from './external-lead-tokens';
 import { digest } from '@/lib/security';
 import { z } from 'zod';
 
@@ -31,6 +32,14 @@ export const federatedSearchSchema = z
       .regex(/^[a-z]{2}$/)
       .optional(),
     remoteOnly: z.enum(['true', 'false']).default('false'),
+    // Structured filters apply to Jobx's approved catalog only.
+    eligibleCountry: z.string().regex(/^[A-Z]{2}$/).optional(),
+    employmentType: z.enum([
+      'FULL_TIME', 'PART_TIME', 'CONTRACTOR', 'TEMPORARY', 'INTERN',
+      'VOLUNTEER', 'PER_DIEM', 'OTHER',
+    ]).optional(),
+    days: z.coerce.number().int().min(1).max(365).optional(),
+    sort: z.enum(['relevance', 'recent']).default('relevance'),
     provider: z.enum(['all', 'jobx', 'himalayas', 'adzuna', 'usajobs', 'jooble']).default('all'),
     page: z.coerce.number().int().min(1).max(20).default(1),
   })
@@ -44,7 +53,7 @@ type Status = {
 };
 const providerOrder: ProviderId[] = ['jobx', 'himalayas', 'adzuna', 'usajobs', 'jooble'];
 
-export async function federatedSearch(input: unknown) {
+export async function federatedSearch(input: unknown, userId?: string) {
   const options = federatedSearchSchema.parse(input);
   const selected = (provider: ProviderId) =>
     options.provider === 'all' || options.provider === provider;
@@ -91,6 +100,10 @@ export async function federatedSearch(input: unknown) {
         page: options.page,
         ...(options.country ? { country: options.country } : {}),
         ...(options.remoteOnly === 'true' ? { workplace: 'remote' } : {}),
+        ...(options.eligibleCountry ? { eligibleCountry: options.eligibleCountry } : {}),
+        ...(options.employmentType ? { employmentType: options.employmentType } : {}),
+        ...(options.days ? { days: options.days } : {}),
+        sort: options.sort,
       });
       return result.jobs.map((job) => ({
         id: 'jobx:' + job.id,
@@ -250,7 +263,10 @@ export async function federatedSearch(input: unknown) {
     return item ? [item.status] : [];
   });
   return {
-    items: uniqueLeads(grouped, 75),
+    items: uniqueLeads(grouped, 75).map((lead) => ({
+      ...lead,
+      saveToken: userId ? sealExternalLead(lead, userId) : null,
+    })),
     providers,
     query: options,
     checkedAt: new Date().toISOString(),
