@@ -83,7 +83,11 @@ export function AuthForm({
                 callbackURL: employerFlow ? '/auth?next=%2Femployers' : '/auth',
               });
               if (r.error) throw new Error(r.error.message);
-              setMessage('Check your email to verify your account, then sign in.');
+              // Better Auth returns a synthetic success for duplicate addresses to prevent
+              // account enumeration. A second registration does not send another email.
+              setMessage(
+                'If this address is new, a verification email has been sent. Already registered? Sign in or use Forgot password.',
+              );
             } else if (mode === 'login') {
               const r = await authClient.signIn.email({
                 email,
