@@ -292,7 +292,6 @@ export function FederatedSearch() {
                         </a>{' '}
                         <a href={item.attributionUrl} target="_blank" rel="noopener noreferrer">
                           {/* Use the official Adzuna image configured by the operator. */}
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={item.attributionLogoUrl}
                             width={116}
