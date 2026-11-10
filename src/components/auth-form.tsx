@@ -25,6 +25,7 @@ export function AuthForm({
   );
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   return (
     <div className="auth-card">
       <div className="eyebrow">
@@ -127,7 +128,13 @@ export function AuthForm({
         )}
         {mode === 'register' && (
           <label className="checkbox">
-            <input type="checkbox" required />I accept the <Link href="/terms">Terms</Link> and have
+            <input
+              type="checkbox"
+              required
+              checked={termsAccepted}
+              onChange={(event) => setTermsAccepted(event.target.checked)}
+            />
+            I accept the <Link href="/terms">Terms</Link> and have
             read the <Link href="/privacy">Privacy notice</Link>.
           </label>
         )}
@@ -172,10 +179,13 @@ export function AuthForm({
       )}
       {(mode === 'login' || mode === 'register') && (
         <SocialSignIn
+          key={mode}
           googleEnabled={googleEnabled}
           githubEnabled={githubEnabled}
           callbackURL={destination}
           errorCallbackURL={employerFlow ? '/auth?next=%2Femployers' : '/auth'}
+          allowSignUp={mode === 'register'}
+          termsAccepted={termsAccepted}
         />
       )}
     </div>
