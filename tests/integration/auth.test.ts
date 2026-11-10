@@ -87,6 +87,17 @@ it('registers, verifies email, signs in and resolves a real session', async () =
     .where(eq(s.session.userId, actor!.id));
   expect(await currentActor(req)).toBeNull();
 });
+it('returns an authentication rejection, not a server error, for invalid credentials', async () => {
+  const response = await authRoute(
+    request('sign-in/email', {
+      email: 'auth-fixture@example.com',
+      password: 'incorrect-password-with-sufficient-length',
+    }),
+  );
+  expect(response.status).toBeGreaterThanOrEqual(400);
+  expect(response.status).toBeLessThan(500);
+});
+
 it('resets a password and revokes old sessions', async () => {
   const reset = await authRoute(
     request('request-password-reset', { email: 'auth-fixture@example.com', redirectTo: '/auth' }),
