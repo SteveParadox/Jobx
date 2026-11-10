@@ -2,6 +2,15 @@ import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { closeDb, getDb } from '../src/db';
 import * as s from '../src/db/schema';
 
+type InventoryRow = Pick<
+  typeof s.jobs.$inferSelect,
+  'title' | 'applyUrl' | 'employerId' | 'status' | 'createdAt'
+> & {
+  jobId: string;
+  employerName: string;
+  verificationStatus: string;
+};
+
 /**
  * Read-only, keyset-paginated inventory for possible historical Apify imports.
  * An unowned external listing is NOT proof of Apify provenance.
@@ -13,7 +22,7 @@ try {
   let reviewed = 0;
   for (;;) {
 
-    const rows = await db
+    const rows: InventoryRow[] = await db
       .select({
         jobId: s.jobs.id,
         title: s.jobs.title,
