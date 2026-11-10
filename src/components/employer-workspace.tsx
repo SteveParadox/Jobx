@@ -1,9 +1,9 @@
 'use client';
 import type { applications, employers, jobs } from '@/db/schema';
-import { ArrowRight, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from './actions';
+import { EmployerAccessError, EmployerAccessGate, EmployerAccessLoading } from './employer-access-gate';
 import { MetricsPanel } from './metrics-panel';
 import { Button, Empty, Notice } from './ui';
 type Company = typeof employers.$inferSelect;
@@ -92,46 +92,23 @@ export function EmployerWorkspace() {
     }
   }
   const company = orgs.find((x) => x.employer.id === org)?.employer;
+  const retryAccess = () => {
+    setAccessState('loading');
+    void loadOrganizations();
+  };
   if (accessState === 'sign-in' || accessState === 'verify-email') {
     return (
       <EmployerAccessGate
         verificationRequired={accessState === 'verify-email'}
-        onRetry={() => {
-          setAccessState('loading');
-          void loadOrganizations();
-        }}
+        onRetry={retryAccess}
       />
     );
   }
   if (accessState === 'error') {
-    return (
-      <div className="container employer-access-page">
-        <section className="employer-entry-error" aria-labelledby="employer-error-title">
-          <span className="employer-entry-label">Workspace unavailable</span>
-          <h1 id="employer-error-title">We couldn't load your employer workspace.</h1>
-          <p>Something interrupted the request for your organization details. Try again.</p>
-          <Notice error>{initialError}</Notice>
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => {
-              setAccessState('loading');
-              void loadOrganizations();
-            }}
-          >
-            <RefreshCw size={16} aria-hidden="true" />
-            Try again
-          </button>
-        </section>
-      </div>
-    );
+    return <EmployerAccessError message={initialError} onRetry={retryAccess} />;
   }
   if (accessState === 'loading') {
-    return (
-      <div className="container employer-access-page" role="status" aria-live="polite">
-        <div className="employer-entry-loading">Opening your employer workspace…</div>
-      </div>
-    );
+    return <EmployerAccessLoading />;
   }
   return (
     <div className="container workspace">
@@ -418,100 +395,6 @@ export function EmployerWorkspace() {
           {tab === 'Billing' && <Billing employerId={org} />}
         </>
       )}
-    </div>
-  );
-}
-
-function EmployerAccessGate({
-  verificationRequired,
-  onRetry,
-}: {
-  verificationRequired: boolean;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="container employer-access-page">
-      <section className="employer-entry" aria-labelledby="employer-entry-title">
-        <div className="employer-entry-main">
-          <span className="employer-entry-label">
-            <LockKeyhole size={15} aria-hidden="true" />
-            Employer access
-          </span>
-          <h1 id="employer-entry-title">
-            {verificationRequired ? (
-              <>
-                One more step: <em>verify your email.</em>
-              </>
-            ) : (
-              <>
-                Your next great hire <em>starts here.</em>
-              </>
-            )}
-          </h1>
-          <p className="employer-entry-description">
-            {verificationRequired
-              ? 'Verify your email using the link we sent you, then return to open your employer workspace.'
-              : 'Sign in to manage your vacancies and applicants, or create an account to set up your organization.'}
-          </p>
-          <div className="employer-entry-actions">
-            {verificationRequired ? (
-              <>
-                <button type="button" className="button button-primary" onClick={onRetry}>
-                  I've verified my email
-                  <ArrowRight size={17} aria-hidden="true" />
-                </button>
-                <Link href="/auth?next=%2Femployers" className="button button-secondary">
-                  Switch account
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link href="/auth?next=%2Femployers" className="button button-primary">
-                  Sign in to continue
-                  <ArrowRight size={17} aria-hidden="true" />
-                </Link>
-                <Link
-                  href="/auth?mode=register&next=%2Femployers"
-                  className="button button-secondary"
-                >
-                  Create an account
-                </Link>
-              </>
-            )}
-          </div>
-          <p className="employer-entry-assurance">
-            <ShieldCheck size={17} aria-hidden="true" />
-            Company profiles and vacancies are reviewed before publication.
-          </p>
-        </div>
-        <aside className="employer-entry-aside" aria-label="How employer onboarding works">
-          <span className="employer-entry-aside-eyebrow">A CLEAR PATH TO HIRING</span>
-          <h2>From first sign-in to your first opening.</h2>
-          <ol className="employer-entry-steps">
-            <li>
-              <span aria-hidden="true">01</span>
-              <div>
-                <strong>Create your account</strong>
-                <p>Verify your email to secure your workspace.</p>
-              </div>
-            </li>
-            <li>
-              <span aria-hidden="true">02</span>
-              <div>
-                <strong>Set up your organization</strong>
-                <p>Submit your company details for verification.</p>
-              </div>
-            </li>
-            <li>
-              <span aria-hidden="true">03</span>
-              <div>
-                <strong>Share an opportunity</strong>
-                <p>Draft a vacancy and submit it for review.</p>
-              </div>
-            </li>
-          </ol>
-        </aside>
-      </section>
     </div>
   );
 }
