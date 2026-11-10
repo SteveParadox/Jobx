@@ -32,11 +32,20 @@ test('server-rendered public details include the real fixture description and ca
   expect(response.headers()['x-robots-tag']).toContain('noindex');
 });
 test('unknown pages return HTTP 404 rather than a streamed 200', async ({ request }) => {
-  for (const url of ['/does-not-exist-observer-check', '/jobs/nonexistent-observer-landing']) {
+  for (const url of [
+    '/does-not-exist-observer-check',
+    '/jobs/nonexistent-observer-landing',
+    '/resources/nonexistent-observer-guide',
+    '/companies/nonexistent-observer-company',
+    '/job/ffffffff-ffff-4fff-8fff-ffffffffffff/nonexistent-job',
+  ]) {
     const response = await request.get(url);
     expect(response.status(), url).toBe(404);
     expect(await response.text()).toContain('This page has moved');
   }
+  const supported = await request.get('/about');
+  expect(supported.status()).toBe(200);
+  expect(await supported.text()).toContain('A clearer direction for your career.');
 });
 
 test('anonymous dashboard visitors are redirected before private data is requested', async ({
@@ -68,9 +77,13 @@ test('a forged unsubscribe link shows an error rather than a success notice', as
   await page.goto('/unsubscribe?token=forged-not-a-valid-alert-token-1234567890');
   await page.getByRole('button', { name: 'Unsubscribe from this alert' }).click();
   await expect(page.getByRole('alert')).toContainText('invalid or no longer available');
-  await expect(page.getByText('This alert is disabled. No further digests will be sent.')).toHaveCount(
-    0,
-  );
+  await expect(page.getByText('This alert is disabled. No new digests will be scheduled.')).toHaveCount(0);
+});
+
+test('an unsubscribe page without a token refuses to submit', async ({ page }) => {
+  await page.goto('/unsubscribe');
+  await expect(page.getByRole('alert')).toContainText('missing its token');
+  await expect(page.getByRole('button', { name: 'Unsubscribe from this alert' })).toBeDisabled();
 });
 
 test('bad search query strings show a helpful message rather than raw Zod issues', async ({
@@ -81,6 +94,10 @@ test('bad search query strings show a helpful message rather than raw Zod issues
     page.getByText('Some search filters are invalid. Check the selected values and try again.'),
   ).toBeVisible();
   await expect(page.getByText(/Invalid input|Invalid option|expected string/)).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Check your search filters' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save this search' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Create job alert' })).toHaveCount(0);
+  await expect(page.getByText('No active vacancies match these criteria.')).toHaveCount(0);
 });
 
 test('visitor searches, paginates and opens a job', async ({ page }) => {
@@ -137,6 +154,16 @@ test('candidate saves a job, creates and unsubscribes an alert and submits a nat
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect(page.getByText('daily · email · Paused')).toBeVisible();
 });
+test('sign-out clears the private dashboard and a new anonymous request redirects', async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(/\\/$/);
+  await page.goto('/dashboard');
+  await expect(page).toHaveURL(/\\/auth\\?next=%2Fdashboard/);
+});
+
 test('external apply uses the authorized destination without requiring sign-in', async ({
   page,
 }) => {
