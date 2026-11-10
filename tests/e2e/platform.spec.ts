@@ -205,6 +205,60 @@ test('employer sign-in gate offers a styled entry and returns users to the works
   );
 });
 
+test('Google and GitHub choices are consistent across employer and account access', async ({
+  page,
+}) => {
+  await page.goto('/auth?next=%2Femployers');
+  const googleEnabled = await page.getByRole('button', { name: 'Continue with Google' }).count();
+  const githubEnabled = await page.getByRole('button', { name: 'Continue with GitHub' }).count();
+  expect(googleEnabled).toBeLessThanOrEqual(1);
+  expect(githubEnabled).toBeLessThanOrEqual(1);
+
+  await page.getByRole('tab', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(
+    googleEnabled,
+  );
+  await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toHaveCount(
+    githubEnabled,
+  );
+
+  await page.goto('/employers');
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(
+    googleEnabled,
+  );
+  await expect(page.getByRole('button', { name: 'Continue with GitHub' })).toHaveCount(
+    githubEnabled,
+  );
+});
+
+test('configured OAuth buttons initiate sign-in with the employer return path', async ({
+  page,
+}) => {
+  const requests: Array<{ provider: string; callbackURL: string; errorCallbackURL: string }> = [];
+  await page.route('**/api/auth/sign-in/social', async (route) => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'OAuth test interruption' }),
+    });
+  });
+  await page.goto('/auth?next=%2Femployers');
+
+  for (const provider of ['Google', 'GitHub'] as const) {
+    const button = page.getByRole('button', { name: `Continue with ${provider}` });
+    if ((await button.count()) === 0) continue;
+    await button.click();
+    await expect(page.getByRole('alert')).toContainText('OAuth test interruption');
+    const last = requests.at(-1);
+    expect(last).toMatchObject({
+      provider: provider.toLowerCase(),
+      callbackURL: '/employers',
+      errorCallbackURL: '/auth?next=%2Femployers',
+    });
+  }
+});
+
 test('employer workspace distinguishes API failures from sign-in requirements', async ({
   page,
 }) => {
