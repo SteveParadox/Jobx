@@ -9,14 +9,18 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import Link from 'next/link';
+import { SocialSignIn } from './social-sign-in';
 import styles from './employer-access-gate.module.css';
 
 type RetryProps = { onRetry: () => void };
+type ProviderFlags = { googleEnabled: boolean; githubEnabled: boolean };
 
 export function EmployerAccessGate({
   verificationRequired,
   onRetry,
-}: RetryProps & { verificationRequired: boolean }) {
+  googleEnabled,
+  githubEnabled,
+}: RetryProps & ProviderFlags & { verificationRequired: boolean }) {
   return (
     <div className={styles.page}>
       <section
@@ -87,6 +91,12 @@ export function EmployerAccessGate({
                 </>
               )}
             </div>
+            <SocialSignIn
+              googleEnabled={googleEnabled}
+              githubEnabled={githubEnabled}
+              callbackURL="/employers"
+              errorCallbackURL="/auth?next=%2Femployers"
+            />
           </div>
 
           <div className={styles.assurance}>
