@@ -77,7 +77,9 @@ test('a forged unsubscribe link shows an error rather than a success notice', as
   await page.goto('/unsubscribe?token=forged-not-a-valid-alert-token-1234567890');
   await page.getByRole('button', { name: 'Unsubscribe from this alert' }).click();
   await expect(page.getByRole('alert')).toContainText('invalid or no longer available');
-  await expect(page.getByText('This alert is disabled. No new digests will be scheduled.')).toHaveCount(0);
+  await expect(
+    page.getByText('This alert is disabled. No new digests will be scheduled.'),
+  ).toHaveCount(0);
 });
 
 test('an unsubscribe page without a token refuses to submit', async ({ page }) => {
