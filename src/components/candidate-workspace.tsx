@@ -91,8 +91,15 @@ export function CandidateWorkspace() {
           <Button
             variant="secondary"
             onClick={async () => {
-              await authClient.signOut();
-              router.push('/');
+              const result = await authClient.signOut();
+              if (result.error) {
+                setError(true);
+                setMessage('Sign-out failed. Please try again.');
+                return;
+              }
+              // Do not retain a private workspace payload in the client router cache.
+              router.refresh();
+              router.replace('/');
             }}
           >
             Sign out
