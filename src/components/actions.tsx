@@ -4,10 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Field, Notice } from './ui';
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
+  constructor(message: string, public readonly status: number) {
     super(message);
     this.name = 'ApiError';
   }
