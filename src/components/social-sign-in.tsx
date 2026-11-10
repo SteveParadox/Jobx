@@ -19,10 +19,22 @@ type SocialSignInProps = {
 function GoogleMark() {
   return (
     <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
-      <path fill="#4285F4" d="M21.6 12.23c0-.68-.06-1.33-.18-1.95H12v3.89h5.38a4.59 4.59 0 0 1-1.99 3.01v2.5h3.22c1.88-1.74 2.99-4.3 2.99-7.45Z" />
-      <path fill="#34A853" d="M12 22c2.7 0 4.97-.89 6.61-2.32l-3.22-2.5c-.89.59-2.03.95-3.39.95a6 6 0 0 1-5.64-4.15H3.04v2.58A10 10 0 0 0 12 22Z" />
-      <path fill="#FBBC05" d="M6.36 13.98a6.02 6.02 0 0 1 0-3.96V7.44H3.04a10 10 0 0 0 0 9.12l3.32-2.58Z" />
-      <path fill="#EA4335" d="M12 5.87c1.47 0 2.79.5 3.83 1.51L18.71 4.5A9.58 9.58 0 0 0 12 2a10 10 0 0 0-8.96 5.44l3.32 2.58A6 6 0 0 1 12 5.87Z" />
+      <path
+        fill="#4285F4"
+        d="M21.6 12.23c0-.68-.06-1.33-.18-1.95H12v3.89h5.38a4.59 4.59 0 0 1-1.99 3.01v2.5h3.22c1.88-1.74 2.99-4.3 2.99-7.45Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 22c2.7 0 4.97-.89 6.61-2.32l-3.22-2.5c-.89.59-2.03.95-3.39.95a6 6 0 0 1-5.64-4.15H3.04v2.58A10 10 0 0 0 12 22Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M6.36 13.98a6.02 6.02 0 0 1 0-3.96V7.44H3.04a10 10 0 0 0 0 9.12l3.32-2.58Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.87c1.47 0 2.79.5 3.83 1.51L18.71 4.5A9.58 9.58 0 0 0 12 2a10 10 0 0 0-8.96 5.44l3.32 2.58A6 6 0 0 1 12 5.87Z"
+      />
     </svg>
   );
 }
@@ -43,7 +55,9 @@ export function SocialSignIn({
   async function signIn(provider: SocialProvider) {
     if (pending) return;
     if (allowSignUp && !termsAccepted) {
-      setError('Please accept the Terms and read the Privacy notice before creating an account.');
+      setError(
+        'Please accept the Terms and read the Privacy notice before creating an account.',
+      );
       return;
     }
     setPending(provider);
