@@ -159,9 +159,9 @@ test('sign-out clears the private dashboard and a new anonymous request redirect
 }) => {
   await signIn(page);
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page).toHaveURL(/\\/$/);
+  await expect(page).toHaveURL(/\/$/);
   await page.goto('/dashboard');
-  await expect(page).toHaveURL(/\\/auth\\?next=%2Fdashboard/);
+  await expect(page).toHaveURL(/\/auth\?next=%2Fdashboard/);
 });
 
 test('external apply uses the authorized destination without requiring sign-in', async ({
