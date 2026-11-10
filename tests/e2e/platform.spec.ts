@@ -212,6 +212,24 @@ test('employer workspace distinguishes API failures from sign-in requirements', 
   await expect(page.getByRole('link', { name: 'Sign in to continue' })).toBeVisible();
 });
 
+test('unverified employers see email verification instead of a generic sign-in prompt', async ({
+  page,
+}) => {
+  await page.route('**/api/platform/employers', (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Verify your email first' }),
+    }),
+  );
+  await page.goto('/employers');
+  await expect(
+    page.getByRole('heading', { name: 'One more step: verify your email.' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: "I've verified my email" })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in to continue' })).toHaveCount(0);
+});
+
 test('employer drafts a job and submits it for approval', async ({ page }) => {
   await signIn(page, 'employer@example.invalid');
   await page.goto('/employers');
