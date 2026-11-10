@@ -40,9 +40,9 @@ const schema = z.object({
 
   // Public no-key job search. Enabled by default, can be disabled by the operator.
   FEDERATED_HIMALAYAS_ENABLED: z
-    .string()
-    .optional()
-    .transform((value) => value !== 'false'),
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
 
   // Licensed, opt-in external search. Never expose provider keys to the client.
   FEDERATED_ADZUNA_ENABLED: bool,

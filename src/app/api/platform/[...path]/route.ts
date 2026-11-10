@@ -173,7 +173,7 @@ async function handler(req: Request, context: { params: Promise<{ path: string[]
       return markNotification(actor, uuid(p[1]), data.read);
     }
     if (method === 'GET' && path === 'federated-search') {
-      await rateLimit('federated-search:account:' + actor.id, 4, 60);
+      await rateLimit('federated-search:account:' + actor.id, 10, 60);
       return federatedSearch(Object.fromEntries(new URL(req.url).searchParams), actor.id);
     }
     if (method === 'GET' && path === 'external-leads') return listSavedExternalLeads(actor);

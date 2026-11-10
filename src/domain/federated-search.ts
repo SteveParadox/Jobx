@@ -6,6 +6,7 @@ import {
   fetchJooble,
   fetchUsaJobs,
   fetchHimalayas,
+  cachedHimalayas,
   uniqueLeads,
   type ProviderId,
   type SearchLead,
@@ -46,7 +47,7 @@ export const federatedSearchSchema = z
 
 type Status = {
   provider: ProviderId;
-  state: 'ok' | 'not_configured' | 'skipped' | 'error';
+  state: 'ok' | 'partial' | 'not_configured' | 'skipped' | 'error';
   count: number;
   note: string;
 };
@@ -70,10 +71,21 @@ export async function federatedSearch(input: unknown, userId?: string) {
     note: string,
     jobs: SearchLead[] = [],
   ) => outputs.set(provider, { status: { provider, state, note, count: jobs.length }, jobs });
-  const execute = (provider: ProviderId, action: () => Promise<SearchLead[]>) => {
+  const execute = (
+    provider: ProviderId,
+    action: () => Promise<SearchLead[] | {
+      jobs: SearchLead[];
+      partial: boolean;
+      note: string;
+    }>,
+    note = 'Fetched from the declared source.',
+  ) => {
     tasks.push(
       action()
-        .then((jobs) => { setStatus(provider, 'ok', 'Fetched from the declared source.', jobs); })
+        .then((result) => {
+          if (Array.isArray(result)) setStatus(provider, 'ok', note, result);
+          else setStatus(provider, result.partial ? 'partial' : 'ok', result.note, result.jobs);
+        })
         .catch(() => {
           // Never disclose provider request URLs: some contain API keys.
           setStatus(provider, 'error', 'Provider could not be reached or returned invalid data.');
@@ -118,7 +130,7 @@ export async function federatedSearch(input: unknown, userId?: string) {
         // The public API is shared. Cache identical queries for six hours.
         // Do not send account identifiers, CVs or user profiles to this service.
         const country = options.country ?? options.market?.toUpperCase();
-        const cacheKey = 'federated:himalayas:' + digest(
+        const cacheKey = 'federated:himalayas:v2:' + digest(
           JSON.stringify({ q: options.q.toLowerCase(), country: country ?? '', page: options.page }),
         );
         const redis = env.REDIS_URL ? getRedis() : null;
@@ -127,11 +139,8 @@ export async function federatedSearch(input: unknown, userId?: string) {
           if (cached) {
             try {
               const parsed: unknown = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.every((lead) =>
-                lead && typeof lead === 'object' && lead.provider === 'himalayas'
-              )) return (parsed as SearchLead[]).filter((lead) =>
-                !lead.expiresAt || Date.parse(lead.expiresAt) > Date.now()
-              );
+              const valid = cachedHimalayas(parsed);
+              if (valid) return valid;
             } catch {
               // Refetch invalid cached values rather than surfacing broken results.
             }
@@ -139,9 +148,18 @@ export async function federatedSearch(input: unknown, userId?: string) {
         }
         await rateLimit('federated:provider:himalayas:day', 80, 86400);
         const leads = await fetchHimalayas({ q: options.q, page: options.page, country });
-        if (redis) await redis.set(cacheKey, JSON.stringify(leads), 'EX', 21600);
+        if (redis) {
+          try {
+            await redis.set(cacheKey, JSON.stringify(leads), 'EX', 21600);
+          } catch {
+            // Best-effort cache: the upstream request already passed its budget guard.
+            // Preserve valid results if Redis fails after the fetch.
+          }
+        }
         return leads;
-      });
+      }, options.location
+        ? 'Himalayas has no city-level location filter; results use the selected country or worldwide.'
+        : 'Fetched remote vacancies from Himalayas.');
   }
 
   if (selected('adzuna')) {
@@ -172,12 +190,27 @@ export async function federatedSearch(input: unknown, userId?: string) {
     else
       execute('adzuna', async () => {
         // Limit this provider globally, in addition to per-account API throttling.
-        await rateLimit('federated:provider:adzuna:day', 90, 86400);
-        return fetchAdzuna(query, {
-          appId: env.FEDERATED_ADZUNA_APP_ID!,
-          appKey: env.FEDERATED_ADZUNA_APP_KEY!,
-          logoUrl: logo,
-        }, markets);
+        const requests = await Promise.allSettled(markets.map(async (market) => {
+          // Rate-limit each market separately, then fetch concurrently.
+          await rateLimit('federated:provider:adzuna:day', 90, 86400);
+          return fetchAdzuna(query, {
+            appId: env.FEDERATED_ADZUNA_APP_ID!,
+            appKey: env.FEDERATED_ADZUNA_APP_KEY!,
+            logoUrl: logo,
+          }, [market]);
+        }));
+        const succeeded = requests.filter(
+          (item): item is PromiseFulfilledResult<SearchLead[]> => item.status === 'fulfilled',
+        );
+        if (!succeeded.length) throw new Error('ADZUNA_MARKETS_UNAVAILABLE');
+        const failed = requests.length - succeeded.length;
+        return {
+          jobs: succeeded.flatMap((item) => item.value),
+          partial: failed > 0,
+          note: failed
+            ? failed + ' of ' + requests.length + ' configured markets unavailable.'
+            : 'Fetched from the selected Adzuna markets.',
+        };
       });
   }
 

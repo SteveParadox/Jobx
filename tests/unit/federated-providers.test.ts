@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   parseAdzuna,
+  fetchAdzuna,
   parseJooble,
   parseUsaJobs,
   parseHimalayas,
   fetchHimalayas,
   fetchUsaJobs,
+  fetchJooble,
+  cachedHimalayas,
   safeProviderUrl,
   uniqueLeads,
 } from '../../src/integrations/federated-providers';
@@ -23,8 +26,9 @@ describe('federated search input and official API adapters', () => {
     expect(safeProviderUrl('https://www.usajobs.gov.evil.example/job', 'usajobs.gov')).toBeNull();
     expect(safeProviderUrl('https://127.0.0.1/job', 'usajobs.gov')).toBeNull();
     expect(safeProviderUrl('https://www.usajobs.gov/job?utm_source=test&id=5', 'usajobs.gov'))
-      .toBe('https://www.usajobs.gov/job?id=5');
+      .toBe('https://www.usajobs.gov/job?utm_source=test&id=5');
     expect(safeProviderUrl('javascript:alert(1)', 'usajobs.gov')).toBeNull();
+    expect(safeProviderUrl('https://www.usajobs.gov/job\nunsafe', 'usajobs.gov')).toBeNull();
   });
   it('parses Adzuna with official display attribution and skips unsafe links', () => {
     const jobs = parseAdzuna({
@@ -67,13 +71,13 @@ describe('federated search input and official API adapters', () => {
           guid: 'test-1', title: 'Remote Teacher', companyName: 'Example Academy',
           excerpt: 'Teach and assess students.',
           applicationLink: 'https://himalayas.app/jobs/remote-teacher',
-          pubDate: 1794010000000,
-          expiryDate: 4102444800000,
+          pubDate: 1794010000,
+          expiryDate: 4102444800,
         },
         {
           guid: 'test-expired', title: 'Expired Teacher', companyName: 'Old School',
           applicationLink: 'https://himalayas.app/jobs/expired',
-          expiryDate: 978307200000,
+          expiryDate: 978307200,
         },
         {
           guid: 'test-redirect', title: 'Unsafe Job', companyName: 'Example',
@@ -91,6 +95,48 @@ describe('federated search input and official API adapters', () => {
     });
     expect(jobs[0].postedAt).toMatch(/^2026-/);
     expect(jobs[0].expiresAt).toBe('2100-01-01T00:00:00.000Z');
+  });
+  it('drops entries with malformed advertised expiry dates', () => {
+    const jobs = parseHimalayas({ jobs: [{
+      guid: 'bad-date', title: 'Remote Nurse', companyName: 'Clinic',
+      applicationLink: 'https://himalayas.app/jobs/nurse',
+      expiryDate: 'not-a-date',
+    }] });
+    expect(jobs).toEqual([]);
+  });
+  it('preserves provider application links and source tracking exactly', () => {
+    const url = 'https://himalayas.app/jobs/teacher?utm_source=api&application=1';
+    const jobs = parseHimalayas({ jobs: [{
+      guid: 'teacher', title: 'Remote Teacher', companyName: 'Academy',
+      applicationLink: url, pubDate: 1794010000, expiryDate: 4102444800,
+    }] });
+    expect(jobs[0].url).toBe(url);
+  });
+  it('rejects forged cached results and removes jobs that expired', () => {
+    const [original] = parseHimalayas({ jobs: [{
+      guid: 'teacher', title: 'Remote Teacher', companyName: 'Academy',
+      applicationLink: 'https://himalayas.app/jobs/teacher',
+      pubDate: 1794010000, expiryDate: 4102444800,
+    }] });
+    expect(cachedHimalayas([original])?.[0].url).toBe(original.url);
+    expect(cachedHimalayas([{ ...original, url: 'javascript:alert(1)' }])).toBeNull();
+    expect(cachedHimalayas([{ ...original, provider: 'jobx' }])).toBeNull();
+    expect(cachedHimalayas([{ ...original, expiresAt: '1970-01-01T00:00:00Z' }])).toEqual([]);
+    expect(cachedHimalayas({ jobs: [original] })).toBeNull();
+  });
+  it('sends numeric Jooble pagination fields to the approved country API', async () => {
+    const request = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ jobs: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    await fetchJooble(
+      { q: 'doctor', location: 'London', page: 3 },
+      { apiKey: 'dummy-key', region: 'gb' },
+      request as unknown as typeof fetch,
+    );
+    const call = request.mock.calls[0];
+    expect(call[0]).toMatch(/^https:\/\/uk\.jooble\.org\/api\//);
+    expect(JSON.parse(String(call[1]?.body))).toMatchObject({ page: 3, ResultOnPage: 15 });
   });
   it('calls the keyless Himalayas search endpoint without profile data or credentials', async () => {
     const request = vi.fn(async (_url: string, _init?: RequestInit) =>
@@ -139,6 +185,50 @@ describe('federated search input and official API adapters', () => {
     expect(results).toEqual([]);
     expect(request.mock.calls[0][0]).toMatch(/^https:\/\/data\.usajobs\.gov\/api\/search/);
     expect(JSON.stringify(results)).not.toContain('secret-key-for-test');
+  });
+  it('does not disguise malformed success responses as no vacancies', async () => {
+    const bad = vi.fn(async () => new Response(JSON.stringify({ error: 'invalid key' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    await expect(fetchAdzuna(
+      { q: 'builder', location: '', page: 1 },
+      { appId: 'example', appKey: 'example', logoUrl: '/official.png' },
+      ['gb'],
+      bad as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
+    await expect(fetchUsaJobs(
+      { q: 'nurse', location: '', page: 1 },
+      { apiKey: 'example', email: 'operator@example.com' },
+      false,
+      bad as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
+    await expect(fetchJooble(
+      { q: 'nurse', location: 'London', page: 1 },
+      { apiKey: 'example', region: 'gb' },
+      bad as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_ENVELOPE');
+  });
+  it('flags source pages whose only jobs have unsafe destinations', async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({
+      results: [{ id: '1', title: 'Nurse', redirect_url: 'https://fake.example/job' }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    await expect(fetchAdzuna(
+      { q: 'nurse', location: '', page: 1 },
+      { appId: 'example', appKey: 'example', logoUrl: '/official.png' },
+      ['gb'],
+      request as unknown as typeof fetch,
+    )).rejects.toThrow('UPSTREAM_RECORDS_REJECTED');
+  });
+  it('keeps all twenty Himalayas search results rather than silently dropping five', () => {
+    const now = 1794150000000;
+    const jobs = Array.from({ length: 20 }, (_, i) => ({
+      guid: 'job-' + i,
+      title: 'Remote Engineer ' + i,
+      applicationLink: 'https://himalayas.app/jobs/job-' + i,
+      expiryDate: 4102444800,
+    }));
+    expect(parseHimalayas({ jobs }, now)).toHaveLength(20);
   });
   it('preserves first occurrence per exact source link, without inventing fuzzy merges', () => {
     const [original] = parseJooble({
